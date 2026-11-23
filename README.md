@@ -48,7 +48,6 @@ Each match scores **2 × suit value × tiles left on the board × streak**.
 - **Streak:** goes up by one with each back-to-back match of the same *suit*, even if the tiles differ.
 
 At game end you get 288 points for every pair removed (20,736 for a full clear); time left doesn't change it.
-Undo doesn't take points away.
 
 `−` / `+` resize the panel, `▁` minimizes it. You can drag it by the header, and it
 remembers where you put it.
