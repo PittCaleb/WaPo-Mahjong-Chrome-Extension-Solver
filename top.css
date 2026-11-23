@@ -1,0 +1,120 @@
+#mjsb-root {
+  --u: 13px;
+  position: fixed; z-index: 2147483000;
+  background: #14251f; color: #e8efe9;
+  border: 1px solid #2f5a49; border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
+  overflow: auto; user-select: none;
+}
+#mjsb-root * { box-sizing: border-box; }
+#mjsb-root button {
+  background: #24453a; color: #e8efe9; border: 1px solid #3c6b59; border-radius: 5px;
+  padding: 1px 7px; font: inherit; cursor: pointer;
+}
+#mjsb-root button:hover { background: #2f5a49; }
+.mjsb-head {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  background: #0d1a16; border-bottom: 1px solid #2f5a49; cursor: move;
+  position: sticky; top: 0; z-index: 5; border-radius: 10px 10px 0 0;
+}
+.mjsb-title { font-weight: 700; letter-spacing: .02em; }
+.mjsb-stats { flex: 1; color: #a9c4b8; white-space: nowrap; }
+.mjsb-btns { display: flex; gap: 4px; }
+.mjsb-min .mjsb-body { display: none; }
+.mjsb-body { padding: 8px; }
+.mjsb-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.mjsb-controls label { display: flex; gap: 4px; align-items: center; cursor: pointer; }
+.mjsb-focus { min-height: 18px; margin-bottom: 6px; }
+.mjsb-focus a, .mjsb-danger a { color: #ffd479; cursor: pointer; text-decoration: underline dotted; }
+.mjsb-focus a.ok { color: #7dff8a; font-weight: 700; }
+.mjsb-root .dim, #mjsb-root .dim { color: #86a094; }
+.mjsb-wait { padding: 20px; color: #a9c4b8; }
+
+.mjsb-layers { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-start; }
+.mjsb-layer { background: #0f1d18; border: 1px solid #23423a; border-radius: 6px; padding: 4px 6px 6px; }
+.mjsb-lname { color: #a9c4b8; font-size: 11px; margin-bottom: 3px; }
+.mjsb-lname em { font-style: normal; color: #6f8f82; margin-left: 4px; }
+.mjsb-grid { position: relative; }
+
+.mjsb-ghost, .mjsb-t {
+  position: absolute; width: calc(var(--u) * 2); height: calc(var(--u) * 2.6);
+}
+.mjsb-ghost { border: 1px dashed rgba(169,196,184,.18); border-radius: 3px; }
+
+.mjsb-t {
+  background: #f6efdc; color: #222; border: 1px solid #8b7b55; border-radius: 3px;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  cursor: pointer; font-weight: 700; font-size: calc(var(--u) * .7);
+  transition: transform .08s;
+}
+.mjsb-t img { width: 92%; height: 92%; object-fit: contain; pointer-events: none; }
+.mjsb-t span { pointer-events: none; }
+.mjsb-t.s1 { color: #1c5fb8; } .mjsb-t.s2 { color: #1d7d3a; } .mjsb-t.s3 { color: #b0281f; }
+.mjsb-t.s4 { color: #333; } .mjsb-t.s5 { color: #7a2aa0; } .mjsb-t.s6, .mjsb-t.s7 { color: #a0662a; }
+
+.mjsb-t.blocked { filter: brightness(.82); }
+.mjsb-t.hidden { filter: brightness(.6) saturate(.7); }
+.mjsb-t.hidden::after {
+  content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(45deg, rgba(0,0,0,.18) 0 2px, transparent 2px 5px);
+  pointer-events: none;
+}
+.mjsb-t .cov {
+  position: absolute; right: 1px; bottom: 0; font-size: calc(var(--u) * .55);
+  color: #fff; background: rgba(0,0,0,.55); border-radius: 3px; padding: 0 2px; line-height: 1.1; z-index: 2;
+}
+.mjsb-t.free { box-shadow: inset 0 0 0 1px #fff; }
+.mjsb-t.gone { background: transparent; border: 1px dashed #3d5f52; filter: none; cursor: default; }
+.mjsb-t.gone::after { display: none; }
+
+.mjsb-t.danger { border: 2px solid #ff3b3b; background: #ffd6d6; filter: none; box-shadow: 0 0 6px #ff3b3b; z-index: 2; }
+.mjsb-t.twin { border: 2px dashed #ff6b6b; }
+.mjsb-t.match {
+  filter: none; z-index: 3; transform: scale(1.12);
+  border: 2px solid #3cff5a; box-shadow: 0 0 0 2px #0d1a16, 0 0 10px 3px #3cff5a;
+}
+.mjsb-t.match.hidden { background: #d8ffd9; }
+.mjsb-t.match.hidden::after { background: repeating-linear-gradient(45deg, rgba(0,80,0,.18) 0 2px, transparent 2px 5px); }
+.mjsb-t.focus {
+  filter: none; z-index: 4; transform: scale(1.15);
+  border: 2px solid #4da3ff; box-shadow: 0 0 0 2px #0d1a16, 0 0 12px 4px #4da3ff;
+}
+
+.mjsb-danger { margin-top: 8px; }
+.mjsb-dhead { color: #ff8a8a; font-weight: 700; }
+.mjsb-danger ul { margin: 3px 0 0; padding-left: 18px; columns: 2; }
+.mjsb-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 8px; color: #a9c4b8; font-size: 11px; }
+.mjsb-legend .lg { display: inline-block; width: 10px; height: 13px; border-radius: 2px; margin-right: 3px; vertical-align: -2px; background: #f6efdc; border: 1px solid #8b7b55; }
+.mjsb-legend .lg.free { box-shadow: inset 0 0 0 1px #fff; }
+.mjsb-legend .lg.blocked { filter: brightness(.82); }
+.mjsb-legend .lg.hidden { filter: brightness(.6); background-image: repeating-linear-gradient(45deg, rgba(0,0,0,.25) 0 2px, transparent 2px 4px); }
+.mjsb-legend .lg.match { border: 2px solid #3cff5a; }
+.mjsb-legend .lg.danger { border: 2px solid #ff3b3b; background: #ffd6d6; }
+.mjsb-legend .lg.twin { border: 2px dashed #ff6b6b; }
+.mjsb-legend .lg.gone { background: transparent; border: 1px dashed #3d5f52; }
+
+/* streak planner */
+.mjsb-streaks { margin-bottom: 8px; }
+.mjsb-shead { margin-bottom: 4px; }
+.mjsb-run {
+  display: flex; gap: 8px; align-items: baseline; padding: 2px 6px; border-radius: 4px;
+  cursor: pointer; border: 1px solid transparent;
+}
+.mjsb-run:hover { background: #1d382f; }
+.mjsb-run.sel { border-color: #7fd0ff; background: #17323a; }
+.mjsb-run .nm { width: 78px; font-weight: 700; }
+.mjsb-run.s1 .nm { color: #7fb4ff; } .mjsb-run.s2 .nm { color: #7ddc95; } .mjsb-run.s3 .nm { color: #ff8f86; }
+.mjsb-run.s4 .nm { color: #d9d9d9; } .mjsb-run.s5 .nm { color: #d59cf0; } .mjsb-run.s6 .nm, .mjsb-run.s7 .nm { color: #f0b77a; }
+.mjsb-run .n { flex: 1; color: #c9dad2; }
+.mjsb-run .n em { font-style: normal; color: #ffd479; }
+.mjsb-run .pts { color: #a9c4b8; font-variant-numeric: tabular-nums; }
+.mjsb-t.plan { filter: none; z-index: 3; border: 2px solid #7fd0ff; }
+.mjsb-t.plan-now { box-shadow: 0 0 0 2px #0d1a16, 0 0 10px 3px #7fd0ff; transform: scale(1.1); }
+.mjsb-t.plan-later { border-style: dashed; }
+.mjsb-t .step {
+  position: absolute; left: 1px; top: 0; font-size: calc(var(--u) * .6);
+  color: #0d1a16; background: #7fd0ff; border-radius: 3px; padding: 0 2px; line-height: 1.1; z-index: 2;
+}
+.mjsb-legend .lg.plan { border: 2px solid #7fd0ff; }

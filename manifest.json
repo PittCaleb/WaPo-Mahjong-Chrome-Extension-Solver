@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Mahjong Shadow Board",
+  "version": "1.1.0",
+  "description": "Personal helper for the Washington Post / Arkadium Mahjong game: shows every tile (including hidden ones), highlights matches, and flags tiles stacked on their own twins.",
+  "content_scripts": [
+    {
+      "matches": ["https://arenacloud.cdn.arkadiumhosted.com/arkadiummodulesstorage-blob/game-rendering-iframe/*"],
+      "js": ["frame.js"],
+      "all_frames": true,
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://games.washingtonpost.com/games/mahjong*"],
+      "js": ["top.js"],
+      "css": ["top.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
