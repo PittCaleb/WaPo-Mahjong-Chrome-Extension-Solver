@@ -118,3 +118,20 @@
   color: #0d1a16; background: #7fd0ff; border-radius: 3px; padding: 0 2px; line-height: 1.1; z-index: 2;
 }
 .mjsb-legend .lg.plan { border: 2px solid #7fd0ff; }
+
+/* solver */
+#mjsb-root button.on { background: #6b5a14; border-color: #ffd84d; }
+.mjsb-solver { margin-bottom: 8px; }
+.mjsb-sstat { padding: 3px 6px; border-radius: 4px; background: #1b2e27; }
+.mjsb-sstat.good { color: #ffe680; }
+.mjsb-sstat.bad { color: #ff8a8a; }
+.mjsb-sstat.warn { color: #ffd479; }
+.mjsb-steps { margin: 4px 0 0; padding-left: 28px; }
+.mjsb-steps li { padding: 1px 0; color: #c9dad2; }
+.mjsb-steps li.now { color: #ffe680; font-weight: 700; }
+.mjsb-steps li a { color: inherit; }
+.mjsb-t.sol { filter: none; z-index: 4; border: 2px solid #ffd84d; }
+.mjsb-t.sol-now { box-shadow: 0 0 0 2px #0d1a16, 0 0 12px 4px #ffd84d; transform: scale(1.12); }
+.mjsb-t.sol-later { border-style: dashed; }
+.mjsb-t .step.sstep { background: #ffd84d; }
+.mjsb-legend .lg.sol { border: 2px solid #ffd84d; }

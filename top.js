@@ -37,7 +37,9 @@
         <label><input type="checkbox" data-opt="tint"> Tint real board</label>
         <label><input type="checkbox" data-opt="danger"> Flag buried twins</label>
         <button data-act="clear">Clear focus</button>
+        <button data-act="solve" class="mjsb-solvebtn">Solve board</button>
       </div>
+      <div class="mjsb-solver"></div>
       <div class="mjsb-focus"></div>
       <div class="mjsb-streaks"></div>
       <div class="mjsb-layers"></div>
@@ -51,12 +53,13 @@
         <span><i class="lg twin"></i>buried twin</span>
         <span><i class="lg gone"></i>removed</span>
         <span><i class="lg plan"></i>streak order</span>
+        <span><i class="lg sol"></i>solver moves</span>
       </div>
     </div>`;
   document.documentElement.appendChild(root);
 
   const $ = (s) => root.querySelector(s);
-  const elStats = $('.mjsb-stats'), elFocus = $('.mjsb-focus'), elLayers = $('.mjsb-layers'), elDanger = $('.mjsb-danger'), elStreaks = $('.mjsb-streaks');
+  const elStats = $('.mjsb-stats'), elFocus = $('.mjsb-focus'), elLayers = $('.mjsb-layers'), elDanger = $('.mjsb-danger'), elStreaks = $('.mjsb-streaks'), elSolver = $('.mjsb-solver'), btnSolve = $('.mjsb-solvebtn');
   root.querySelectorAll('[data-opt]').forEach((cb) => { cb.checked = !!ui[cb.dataset.opt]; });
 
   function place() {
@@ -93,6 +96,7 @@
       if (a === 'smaller') ui.unit = Math.max(7, ui.unit - 2);
       if (a === 'bigger') ui.unit = Math.min(30, ui.unit + 2);
       if (a === 'min') ui.min = !ui.min;
+      if (a === 'solve') { send({ kind: 'solve', on: !(state && state.solver) }); return; }
       if (a === 'clear') send({ kind: 'focus', id: state && state.focusSource === 'shadow' ? state.focusId : null });
       save(); place(); render();
       return;
@@ -146,7 +150,8 @@
   const byId = () => new Map(state.tiles.map((t) => [t.id, t]));
 
   function tileHTML(t, b, opts) {
-    const step = opts.planStep.get(t.id);
+    const sstep = opts.solveStep.get(t.id);
+    const step = sstep ? null : opts.planStep.get(t.id);
     const cls = ['mjsb-t', 's' + t.face.slice(5, 6)];
     if (!t.live) cls.push('gone');
     else {
@@ -158,6 +163,7 @@
     if (opts.matches.has(t.id)) cls.push('match');
     if (t.id === state.focusId) cls.push('focus');
     if (step) cls.push('plan', step === 1 ? 'plan-now' : 'plan-later');
+    if (sstep) cls.push('sol', sstep === 1 ? 'sol-now' : 'sol-later');
     const x = (t.c - b.c0), y = (t.r - b.r0);
     const img = t.live && images[t.face];
     const inner = !t.live ? '' : img ? `<img src="${img}" alt="">` : `<span>${t.label}</span>`;
@@ -165,7 +171,7 @@
       (t.live && t.above ? `, under ${t.above} tile${t.above > 1 ? 's' : ''}` : '') +
       (t.danger ? ' — sits above its own twin: clear early!' : '') +
       (t.twin ? ' — buried under its own twin' : '');
-    const badge = (t.live && t.above ? `<b class="cov">${t.above}</b>` : '') + (step ? `<b class="step">${step}</b>` : '');
+    const badge = (t.live && t.above ? `<b class="cov">${t.above}</b>` : '') + (step ? `<b class="step">${step}</b>` : '') + (sstep ? `<b class="step sstep">${sstep}</b>` : '');
     return `<div class="${cls.join(' ')}" data-id="${t.id}" title="${tip}" style="left:calc(var(--u)*${x});top:calc(var(--u)*1.3*${y})">${inner}${badge}</div>`;
   }
 
@@ -173,7 +179,7 @@
     if (!state || !state.active) {
       elStats.textContent = state ? 'waiting for a game…' : 'connecting…';
       elLayers.innerHTML = '<div class="mjsb-wait">Start or continue a game to see the board.</div>';
-      elFocus.textContent = ''; elDanger.innerHTML = ''; elStreaks.innerHTML = '';
+      elFocus.textContent = ''; elDanger.innerHTML = ''; elStreaks.innerHTML = ''; elSolver.innerHTML = '';
       return;
     }
     const tiles = state.tiles;
@@ -186,6 +192,9 @@
     const pl = state.plan || { runs: [] };
     const run = state.planSuit == null ? null : pl.runs.find((r) => r.suit === state.planSuit);
     if (run) run.seq.forEach((pair, i) => pair.forEach((id) => planStep.set(id, i + 1)));
+    const sv = state.solver;
+    const solveStep = new Map();
+    if (sv && sv.next) sv.next.slice(0, 5).forEach((pair, i) => pair.forEach((id) => solveStep.set(id, i + 1)));
     const live = tiles.filter((t) => t.live);
     const nDanger = live.filter((t) => t.danger).length;
     elStats.textContent = `${state.left} left · ${state.freePairs} free pair${state.freePairs === 1 ? '' : 's'}` +
@@ -199,15 +208,41 @@
       // faint ghost of the layer below, for orientation
       const ghost = tiles.filter((t) => t.l === l - 1 && t.live && t.c + 2 > b.c0 && t.c < b.c1 && t.r + 2 > b.r0 && t.r < b.r1)
         .map((t) => `<div class="mjsb-ghost" style="left:calc(var(--u)*${t.c - b.c0});top:calc(var(--u)*1.3*${t.r - b.r0})"></div>`).join('');
-      const own = tiles.filter((t) => t.l === l).map((t) => tileHTML(t, b, { matches, planStep })).join('');
+      const own = tiles.filter((t) => t.l === l).map((t) => tileHTML(t, b, { matches, planStep, solveStep })).join('');
       const nLive = tiles.filter((t) => t.l === l && t.live).length;
       html += `<div class="mjsb-layer"><div class="mjsb-lname">${LAYER_NAMES[l] || 'Layer ' + (l + 1)} <em>${nLive}</em></div>
         <div class="mjsb-grid" style="width:calc(var(--u)*${w});height:calc(var(--u)*1.3*${h})">${ghost}${own}</div></div>`;
     });
     elLayers.innerHTML = html;
 
-    // Streaks
     const fmt = (n) => n.toLocaleString('en-US');
+
+    // Solver
+    btnSolve.textContent = sv ? 'Stop solver' : 'Solve board';
+    btnSolve.classList.toggle('on', !!sv);
+    if (!sv) elSolver.innerHTML = '';
+    else {
+      const k = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n);
+      const where = (t) => `L${t.l + 1}${t.blocked ? '' : ' free'}`;
+      let h = '';
+      if (sv.status === 'solving') h = `<div class="mjsb-sstat">⏳ Searching… ${k(sv.nodes)} positions tried</div>`;
+      else if (sv.status === 'lose') h = `<div class="mjsb-sstat bad">✗ Not winnable from here without a shuffle` + (sv.reason ? ` (${sv.reason})` : ` — checked every line (${k(sv.nodes)} positions)`) + `.</div>`;
+      else if (sv.status === 'unknown') h = `<div class="mjsb-sstat warn">? No win found after ${k(sv.nodes)} positions (${Math.round(sv.ms / 1000)}s). Boards like this are usually not winnable without a shuffle, but that isn't proven.</div>`;
+      else if (sv.status === 'error') h = `<div class="mjsb-sstat bad">Solver failed to load.</div>`;
+      else if (sv.status === 'win' && sv.step >= sv.total) h = `<div class="mjsb-sstat good">✓ Solved — board cleared!</div>`;
+      else if (sv.status === 'win') {
+        const steps = sv.next.map(([x, y], i) => {
+          const a = ids.get(x), b = ids.get(y);
+          return `<li class="${i === 0 ? 'now' : ''}"><a data-id="${x}">${a.name}</a> <span class="dim">${where(a)}</span> + <a data-id="${y}">${b.name}</a> <span class="dim">${where(b)}</span></li>`;
+        }).join('');
+        h = `<div class="mjsb-sstat good">✓ Winnable — move ${sv.step + 1} of ${sv.total}` +
+          ` <span class="dim">· ~${fmt(sv.pts)} pts if you follow it` + (sv.resolves ? ` · re-planned ${sv.resolves}×` : '') + `</span></div>` +
+          `<ol class="mjsb-steps" start="${sv.step + 1}">${steps}</ol>`;
+      }
+      elSolver.innerHTML = h;
+    }
+
+    // Streaks
     const cur = pl.streak && pl.streak.chain > 0 ? `Current streak: <b>${pl.streak.name} ×${pl.streak.chain}</b>` : 'No streak yet';
     const rows = pl.runs.slice(0, 6).map((r) => {
       const sel = r.suit === state.planSuit ? ' sel' : '';

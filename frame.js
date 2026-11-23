@@ -4,7 +4,7 @@
 (() => {
   'use strict';
   const TAG = 'mjsb';
-  const VERSION = '1.1.0';
+  const VERSION = '1.2.0';
   const TOP_ORIGIN = 'https://games.washingtonpost.com';
   const POLL_MS = 200;
 
@@ -12,7 +12,7 @@
   const TYPE_SUIT_MATCH = 2; // overwritten below if the game exposes it
   const SUIT_NAMES = ['Dots', 'Bamboo', 'Characters', 'Wind', 'Dragon', 'Flower', 'Season'];
   const SUIT_SHORT = ['●', 'B', 'C', 'Wd', 'Dr', 'Fl', 'Se'];
-  const TINT = { plan: 0x7fd0ff, match: 0x7dff8a, danger: 0xff7a7a, twin: 0xffb3b3, none: 0xffffff };
+  const TINT = { solve: 0xffd84d, plan: 0x7fd0ff, match: 0x7dff8a, danger: 0xff7a7a, twin: 0xffb3b3, none: 0xffffff };
 
   let opts = { tint: true, danger: true };
   let manualFocusId = null;
@@ -263,6 +263,88 @@
     return planCache;
   }
 
+  // ---------- solver (see solver.js) ----------
+  const SOLVE_BUDGET_MS = 45000;
+  const solver = { on: false, status: 'idle', job: null, path: null, nodes: 0, ms: 0, startIds: null, t0: 0, resolves: 0 };
+
+  function solverInput(a) {
+    const live = a.live;
+    const hasN = live.length && Array.isArray(live[0].NeighborsLeft);
+    const ids = (arr) => (arr || []).filter((x) => x && x.IsInBoard).map((x) => x.ID);
+    return live.map((t) => {
+      let left, right, above;
+      if (hasN) { left = ids(t.NeighborsLeft); right = ids(t.NeighborsRight); above = ids(t.NeighborsAbove); }
+      else { // geometry fallback: 2x2 footprints in half-tile units
+        left = live.filter((u) => u.Layer === t.Layer && u.Col === t.Col - 2 && Math.abs(u.Row - t.Row) < 2).map((u) => u.ID);
+        right = live.filter((u) => u.Layer === t.Layer && u.Col === t.Col + 2 && Math.abs(u.Row - t.Row) < 2).map((u) => u.ID);
+        above = live.filter((u) => u.Layer === t.Layer + 1 && overlaps(t, u)).map((u) => u.ID);
+      }
+      return { id: t.ID, group: a.groupOf.get(t), suit: t.Suit, layer: t.Layer, left, right, above };
+    });
+  }
+
+  function startSolve(board, a) {
+    const S = window.__mjsbSolver;
+    if (!S) { solver.status = 'error'; return; }
+    solver.job = S.createSolve(solverInput(a), { lastSuit: streakState(board).suit, maxNodes: 2e7, maxDead: 3e6 });
+    solver.status = 'solving'; solver.path = null; solver.nodes = 0;
+    solver.startIds = new Set(a.live.map((t) => t.ID));
+    solver.t0 = Date.now();
+    setTimeout(pump, 0);
+  }
+
+  function pump() {
+    if (!solver.job) return;
+    let r;
+    try { r = solver.job.step(30); } catch (e) { console.warn('[shadow-board] solver', e); solver.job = null; solver.status = 'error'; lastSig = ''; return; }
+    solver.nodes = r.nodes;
+    if (r.status === 'solving') {
+      if (Date.now() - solver.t0 > SOLVE_BUDGET_MS) { solver.status = 'unknown'; solver.job = null; }
+      else setTimeout(pump, 0);
+    } else {
+      solver.status = r.status; solver.path = r.path || null; solver.reason = r.reason || null; solver.job = null;
+    }
+    solver.ms = Date.now() - solver.t0;
+    lastSig = '';
+  }
+
+  // Where is the player along the solution? Re-solve if they left it.
+  function solverView(board, a) {
+    if (!solver.on) return null;
+    const v = { status: solver.status, nodes: solver.nodes, ms: solver.ms, resolves: solver.resolves, reason: solver.reason || null };
+    if (solver.status === 'idle' || (solver.status !== 'solving' && !solver.startIds)) { startSolve(board, a); v.status = solver.status; return v; }
+    if (solver.status !== 'win') {
+      // a finished "lose"/"unknown" result is about the board it was run on
+      const liveIds = a.live.map((t) => t.ID);
+      if (solver.status !== 'solving' && (liveIds.length !== solver.startIds.size || liveIds.some((id) => !solver.startIds.has(id)))) {
+        solver.resolves++; startSolve(board, a); v.status = solver.status;
+      }
+      return v;
+    }
+    const live = new Set(a.live.map((t) => t.ID));
+    const path = solver.path;
+    let k = 0;
+    while (k < path.length && !live.has(path[k][0]) && !live.has(path[k][1])) k++;
+    let stillLive = 0;
+    for (const id of solver.startIds) if (live.has(id)) stillLive++;
+    const removedSinceSolve = solver.startIds.size - stillLive;
+    if (removedSinceSolve !== 2 * k || live.size !== stillLive) {
+      solver.resolves++; startSolve(board, a);
+      v.status = solver.status; return v;
+    }
+    // points still to come if the rest of the path is followed
+    const st = streakState(board);
+    let last = st.suit, chain = st.chain, left = a.live.length, pts = 0;
+    const byId = new Map(a.live.map((t) => [t.ID, t]));
+    for (let i = k; i < path.length; i++) {
+      const su = byId.get(path[i][0]).Suit;
+      chain = su === last ? chain + 1 : 1; last = su;
+      pts += 2 * SUIT_VALUE[su] * left * chain; left -= 2;
+    }
+    v.step = k; v.total = path.length; v.next = path.slice(k, k + 8); v.pts = pts + 288 * (144 / 2);
+    return v;
+  }
+
   function applyTints(sc, a) {
     const view = sc._boardView;
     const map = view && view._tileModelToView;
@@ -271,6 +353,7 @@
       for (const t of a.live) {
         let c = null;
         if (a.matchIds.has(t.ID)) c = TINT.match;
+        else if (a.solveNext.has(t.ID)) c = TINT.solve;
         else if (a.planNext.has(t.ID)) c = TINT.plan;
         else if (a.danger.has(t)) c = TINT.danger;
         if (c !== null) want.set(t.ID, c);
@@ -301,18 +384,20 @@
       return;
     }
     const board = sc._board;
-    if (board !== lastBoard) { lastBoard = board; manualFocusId = null; planSuit = null; planKey = ''; tinted.clear(); }
+    if (board !== lastBoard) { lastBoard = board; manualFocusId = null; planSuit = null; planKey = ''; tinted.clear(); solver.job = null; solver.status = 'idle'; solver.startIds = null; }
     const a = analyse(board);
     a.plan = plan(board, a);
     const pr = planSuit === null ? null : a.plan.runs.find((r) => r.suit === planSuit);
     a.planNext = new Set(pr ? pr.seq[0] : []);
+    a.solver = solverView(board, a);
+    a.solveNext = new Set(a.solver && a.solver.next && a.solver.next.length ? a.solver.next[0] : []);
     applyTints(sc, a);
 
     for (const t of a.all) extractFace(g, faceKey(t));
 
     const sig = [
       a.all.map((t) => (t.IsInBoard ? 1 : 0) + (t.IsBlocked ? 2 : 0) + ':' + t.Suit + '.' + t.Value).join(','),
-      a.focus ? a.focus.ID : '-', a.focusSource, opts.tint, opts.danger, planKey, planSuit,
+      a.focus ? a.focus.ID : '-', a.focusSource, opts.tint, opts.danger, planKey, planSuit, JSON.stringify(a.solver),
       Object.keys(faceImg).length,
     ].join('|');
     if (sig === lastSig) return;
@@ -328,7 +413,7 @@
     const msg = {
       kind: 'state', active: true, tiles,
       focusId: a.focus ? a.focus.ID : null, focusSource: a.focusSource,
-      plan: a.plan, planSuit,
+      plan: a.plan, planSuit, solver: a.solver,
       matchIds: [...a.matchIds], dangerPairs: a.dangerPairs,
       freePairs: a.freePairs, left: a.live.length, opts,
     };
@@ -342,6 +427,8 @@
     const d = ev.data;
     if (d.kind === 'focus') manualFocusId = (d.id === manualFocusId ? null : d.id);
     if (d.kind === 'plan') planSuit = (d.suit === planSuit ? null : d.suit);
+    if (d.kind === 'solve') { solver.on = !!d.on; if (!solver.on) { solver.job = null; solver.status = 'idle'; solver.path = null; solver.startIds = null; } else { solver.status = 'idle'; solver.startIds = null; solver.resolves = 0; } }
+    if (d.kind === 'dump') { const sc = scene(); if (sc) post({ kind: 'dump', tiles: solverInput(analyse(sc._board)) }); }
     if (d.kind === 'opts') opts = Object.assign({}, opts, d.opts);
     if (d.kind === 'hello') { lastSig = ''; imagesSent = -1; }
     if (d.kind === 'debug') { try { post({ kind: 'debug', info: debugInfo() }); } catch (e) { post({ kind: 'debug', info: String(e) }); } }

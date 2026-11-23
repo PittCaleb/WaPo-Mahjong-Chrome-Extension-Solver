@@ -30,6 +30,16 @@ separately, so you can see tiles that are hidden under others.
   Click a suit to number its tiles in play order (1, 2, 3…); the next pair also glows
   blue on the real board.
 
+- **Solve board** button: searches every line of play (with your current board,
+  hidden tiles included) for a way to clear it. You get one of these:
+  - **✓ Winnable**: shows the next moves in order. The next pair glows gold on the real
+    board and is numbered in the panel. If you play something else, it re-plans.
+  - **✗ Not winnable**: proven, so you'll need a shuffle.
+  - **? No win found**: it ran out of time; such boards are usually unwinnable.
+
+  The game deals tiles at random, so some boards truly can't be won. In testing on
+  random deals of this layout, about 80% were solved (most in under a second).
+
 ### How scoring works (read from the game code)
 
 Each match scores **2 × suit value × tiles left on the board × streak**.
@@ -37,7 +47,7 @@ Each match scores **2 × suit value × tiles left on the board × streak**.
 - **Suit values:** Characters 1, Dots 2, Bamboo 3, Winds 4, Dragons 5, Flowers 6, Seasons 7.
 - **Streak:** goes up by one with each back-to-back match of the same *suit*, even if the tiles differ.
 
-At game end you get 288 points for every pair removed; time left doesn't change it.
+At game end you get 288 points for every pair removed (20,736 for a full clear); time left doesn't change it.
 Undo doesn't take points away.
 
 `−` / `+` resize the panel, `▁` minimizes it. You can drag it by the header, and it
