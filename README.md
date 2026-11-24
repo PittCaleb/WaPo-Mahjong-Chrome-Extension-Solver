@@ -31,6 +31,7 @@ on, recolors tiles on the game board.
    - [Which order scores best](#which-order-scores-best)
 3. [Using the extension](#using-the-extension)
    - [The Shadow Board panel](#the-shadow-board-panel)
+   - [Streak planner](#streak-planner)
    - [Solver on](#solver-on)
    - [Solver off](#solver-off)
 4. [How it works](#how-it-works)
@@ -269,10 +270,73 @@ under N tiles.
 **"Clear these early"** lists every tile that sits above its own twin. You must
 clear those before you can reach the twin, or those two can never be matched.
 
-**Streak planner:** lists the same-suit streaks you could play right now, counting
-tiles that each match would free up, with the points each streak would earn. Click
-a suit to number its tiles in play order. The next pair also glows blue on the
-game board.
+**Streak planner:** lists the same-suit streaks you could play right now. Click a
+suit to see its tiles numbered in play order. See [Streak planner](#streak-planner)
+below.
+
+### Streak planner
+
+The streak planner sits just above the layers. It answers one question: **"If I
+play only one suit, back to back, starting now, how long a streak can I make and
+what is it worth?"**
+
+![Streak planner with Bamboo selected: five pairs numbered 1 to 5 in the panel](docs/images/streak-planner-panel.png)
+
+**Reading a row**
+
+```
+Bamboo    5 pairs in a row ×1→×5    ~12,480
+```
+
+| Part | Meaning |
+|---|---|
+| **Bamboo** | The suit. Its colour matches the suit colours in the panel. |
+| **5 pairs in a row** | The longest run of back-to-back Bamboo matches it found. It counts tiles that each match frees up, not only the ones free right now. |
+| **×1→×5** | Your streak multiplier on the first and last match of the run. |
+| **~12,480** | Points if you play the whole run now, without matching any other suit in between. |
+
+It shows up to six suits, best-scoring first.
+
+The line above the rows shows your current streak, for example **Current streak:
+Bamboo ×3**. If a row is the same suit, its run continues that streak, so it starts
+at ×4 rather than ×1 and is worth more.
+
+**Click a suit to see the order.** The row gets a blue outline, and that suit's
+tiles get blue numbered badges in the panel: **1** is the pair to play now, **2**
+the next, and so on.
+
+- **Pair 1** has a solid blue glow. Later pairs have a dashed blue border.
+- **Later pairs can be blocked or hidden right now.** Earlier pairs in the run free
+  them up.
+- **On the game board,** only the next pair glows blue, so you always know which
+  two tiles to click.
+
+![The game board with the next Bamboo pair glowing blue, and the panel showing the numbered run](docs/images/streak-planner-board.jpg)
+
+**As you play,** the suit stays selected. After each match the run is worked out
+again from the new board, so the numbers and the blue pair move on to the next
+step. Click the suit again to deselect it. Starting a new game also clears it.
+
+**With the solver on,** both can light up at once. The solver's purple suggestion
+takes priority:
+
+- **On the game board,** a tile that's in both shows purple.
+- **In the panel,** tiles among the solver's next five moves show the purple
+  number instead of the blue one.
+
+If you're following the solver, you can ignore the blue. It's most useful with the
+solver off, or when the solver says a board is **✗ not winnable** or **? no win found
+yet** and you want to score as much as possible.
+
+**Things it doesn't do**
+
+- **It doesn't check whether the board can still be won.** A big Bamboo streak can
+  leave you stuck later. The solver checks this; the streak planner doesn't.
+- **It looks at one suit at a time.** It won't suggest clearing a Characters pair
+  first to set up a longer Bamboo run. The solver's score search does plan that
+  way.
+- **It searches a limited number of play orders per suit, so it stays fast.** Very
+  rarely, a slightly longer run exists than the one shown.
 
 ### Solver on
 
