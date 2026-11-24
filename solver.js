@@ -202,9 +202,142 @@
       if (!enter() && !result) result = { status: 'lose', nodes };
     }
 
+    // ---------- score optimizer ----------
+    // Game scoring: each match scores 2 * suitValue * tilesLeftBeforeMatch * chain,
+    // where chain grows by 1 for each back-to-back match of the same suit.
+    const SV = opts.suitValue || [2, 3, 1, 4, 5, 6, 7];
+    const flat = (moves) => { const p = []; for (const m of moves) for (let i = 0; i < m.length; i += 2) p.push([m[i], m[i + 1]]); return p; };
+    const keyNow = () => h1 * 2097152 + (h2 & 0x1fffff);
+    function scorePairs(pairs) {
+      let last = opts.lastSuit ?? null, chain = opts.chain || 0, l = N, pts = 0;
+      for (const [a] of pairs) { const su = suit[a]; chain = su === last ? chain + 1 : 1; last = su; pts += 2 * SV[su] * l * chain; l -= 2; }
+      return pts;
+    }
+
+    // Bounded depth-first search from the current position. Leaves the board as
+    // it found it. Dead positions it proves are kept (they're facts).
+    function probe(budget, justMoved) {
+      const fr = [];
+      let n = 0, won = false;
+      const push = (top) => {
+        n++;
+        if (removed === N) { won = true; return false; }
+        const key = keyNow();
+        if (dead.has(key)) return false;
+        if (top && (groupDead(G[top[0]]) || (left[G[top[0]]] === 2 && loopThrough(G[top[0]])))) { dead.add(key); return false; }
+        const moves = genMoves(null);
+        if (!moves.length) { dead.add(key); return false; }
+        fr.push({ moves, k: 0, applied: null, key });
+        return true;
+      };
+      const unwind = () => { for (let i = fr.length - 1; i >= 0; i--) if (fr[i].applied) { undo(fr[i].applied); fr[i].applied = null; } };
+      if (!push(justMoved)) return won ? { status: 'win', moves: [] } : { status: 'lose' };
+      for (;;) {
+        if (!fr.length) return { status: 'lose' };
+        const f = fr[fr.length - 1];
+        if (f.applied) { undo(f.applied); f.applied = null; }
+        if (f.k >= f.moves.length) { dead.add(f.key); fr.pop(); continue; }
+        const m = f.moves[f.k++];
+        apply(m); f.applied = m;
+        push(m);
+        if (won) { const moves = fr.map((x) => x.applied); unwind(); return { status: 'win', moves }; }
+        if (n > budget) { unwind(); return { status: 'unknown' }; }
+      }
+    }
+
+    function freePairs() {
+      const free = new Map();
+      for (let i = 0; i < N; i++) if (isFree(i)) { const g = G[i]; (free.get(g) || free.set(g, []).get(g)).push(i); }
+      const out = [];
+      for (const f of free.values()) for (let a = 0; a < f.length; a++) for (let b = a + 1; b < f.length; b++) out.push([f[a], f[b]]);
+      return out;
+    }
+    // Points now, plus how far the streak could run from here: keep taking free
+    // pairs of the same suit (greedily) and add up what they'd score.
+    function rate(m, last, chain, jitter) {
+      const su = suit[m[0]], l = N - removed;
+      let cn = su === last ? chain + 1 : 1;
+      let v = 2 * SV[su] * l * cn;
+      const done = [m];
+      apply(m);
+      const look = opts.lookahead ?? 0; // tested: looking further ahead scored worse
+      for (let k = 1; k <= look; k++) {
+        let nxt = null;
+        for (const p of freePairs()) if (suit[p[0]] === su) { nxt = p; break; }
+        if (!nxt) break;
+        apply(nxt); done.push(nxt);
+        v += 2 * SV[su] * (l - 2 * k) * (cn + k);
+      }
+      for (let i = done.length - 1; i >= 0; i--) undo(done[i]);
+      return jitter ? v * (1 + jitter * rnd() / 4294967296) : v;
+    }
+    const same = (x, y) => x && y && ((x[0] === y[0] && x[1] === y[1]) || (x[0] === y[1] && x[1] === y[0]));
+
+    // Build winning lines greedily by points, only taking a move when a win is
+    // still provably reachable after it (otherwise follow a known winning line).
+    // Repeat with some randomness and keep the best total. Yields to stay responsive.
+    function* optimize(base) {
+      const optMs = opts.optimizeMs ?? 5000, K = opts.optimizeTries || 12, PB = opts.probeNodes || 4000;
+      const tStart = Date.now();
+      let best = { pairs: base, pts: scorePairs(base) };
+      const basePts = best.pts;
+      for (let it = 0; Date.now() - tStart < optMs && it < (opts.optimizeIters || 200); it++) {
+        const jitter = it === 0 ? 0 : (opts.jitter ?? 0.5);
+        // After the first pass, keep the best line up to a random point and
+        // rebuild only the rest (search near the best line found so far).
+        const cut = it === 0 || opts.keepPrefix === false ? 0 : Math.floor(rnd() / 4294967296 * best.pairs.length);
+        let wit = best.pairs.slice(cut);
+        const made = best.pairs.slice(0, cut);
+        let last = opts.lastSuit ?? null, chain = opts.chain || 0;
+        for (const m of made) { apply(m); const su = suit[m[0]]; chain = su === last ? chain + 1 : 1; last = su; }
+        while (removed < N) {
+          const cands = freePairs().map((m) => (m.r = rate(m, last, chain, jitter), m)).sort((x, y) => y.r - x.r);
+          let pick = null;
+          if (Date.now() - tStart < optMs) {
+            for (const c of cands.slice(0, K)) {
+              if (same(c, wit[0])) { pick = c; wit = wit.slice(1); break; }
+              apply(c);
+              const r = probe(PB, c);
+              undo(c);
+              if (r.status === 'win') { pick = c; wit = flat(r.moves); break; }
+              yield;
+            }
+          }
+          if (!pick) { pick = wit[0]; wit = wit.slice(1); }
+          apply(pick); made.push(pick);
+          const su = suit[pick[0]]; chain = su === last ? chain + 1 : 1; last = su;
+        }
+        for (let i = made.length - 1; i >= 0; i--) undo(made[i]);
+        const pts = scorePairs(made);
+        if (pts > best.pts) best = { pairs: made, pts };
+        yield;
+      }
+      return { pairs: best.pairs, pts: best.pts, basePts };
+    }
+
+    let gen = null, phase = 'search';
+
+    function finish() {
+      result.ms = Date.now() - t0;
+      if (result.path) result.path = result.path.map(([a, b]) => [tiles[a].id, tiles[b].id]);
+      result.runs = run + 1;
+      return result;
+    }
+
     function step(ms) {
-      if (result) return result;
+      if (result && !gen) return result.ms === undefined ? finish() : result;
       const end = Date.now() + (ms || 20);
+      if (gen) {
+        while (Date.now() < end) {
+          const r = gen.next();
+          if (r.done) {
+            gen = null;
+            result.path = r.value.pairs; result.score = r.value.pts; result.baseScore = r.value.basePts;
+            return finish();
+          }
+        }
+        return { status: 'solving', phase, nodes };
+      }
       if (!started) { started = true; if (!enter() && !result) result = { status: 'lose', nodes }; }
       while (!result) {
         if (!stack.length) { result = { status: 'lose', nodes }; break; }
@@ -219,17 +352,16 @@
         if (runNodes > runLimit && !result) restart();
         if ((nodes & 255) === 0 && Date.now() > end) break;
       }
-      if (result) {
-        result.ms = Date.now() - t0;
-        if (result.path) {
-          // flatten 4-tile safe moves into two pairs, map back to tile ids
-          const pairs = [];
-          for (const m of result.path) for (let i = 0; i < m.length; i += 2) pairs.push([tiles[m[i]].id, tiles[m[i + 1]].id]);
-          result.path = pairs;
-        }
+      if (!result) return { status: 'solving', phase, nodes, runs: run + 1 };
+      if (result.path) {
+        // back to the start position, as pairs of tile indexes
+        for (let i = stack.length - 1; i >= 0; i--) if (stack[i].applied) { undo(stack[i].applied); stack[i].applied = null; }
+        stack.length = 0;
+        result.path = flat(result.path);
+        if (opts.optimize) { gen = optimize(result.path); phase = 'optimize'; return { status: 'solving', phase, nodes }; }
+        result.score = scorePairs(result.path);
       }
-      if (result) result.runs = run + 1;
-      return result || { status: 'solving', nodes, runs: run + 1 };
+      return finish();
     }
 
     return { step };

@@ -4,7 +4,7 @@
 (() => {
   'use strict';
   const TAG = 'mjsb';
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
   const TOP_ORIGIN = 'https://games.washingtonpost.com';
   const POLL_MS = 200;
 
@@ -264,7 +264,8 @@
   }
 
   // ---------- solver (see solver.js) ----------
-  const SOLVE_BUDGET_MS = 45000;
+  const SOLVE_BUDGET_MS = 45000; // search for a win
+  const OPTIMIZE_MS = 5000; // then improve its score
   const solver = { on: true, status: 'idle', job: null, path: null, nodes: 0, ms: 0, startIds: null, startPos: null, startTiles: null, t0: 0, resolves: 0 };
   // Where each tile is and what it shows. A shuffle moves tiles around but keeps
   // their IDs, so the solution must be thrown away when any of this changes.
@@ -316,8 +317,11 @@
   function startSolve(board, a) {
     const S = window.__mjsbSolver;
     if (!S) { solver.status = 'error'; return; }
-    solver.job = S.createSolve(solverInput(a), { lastSuit: streakState(board).suit, maxNodes: 2e7, maxDead: 3e6 });
-    solver.status = 'solving'; solver.path = null; solver.nodes = 0;
+    const st = streakState(board);
+    // optimize: once a win is found, spend up to OPTIMIZE_MS finding a
+    // higher-scoring way to win (never trading away the win).
+    solver.job = S.createSolve(solverInput(a), { lastSuit: st.suit, chain: st.chain, suitValue: SUIT_VALUE, maxNodes: 2e7, maxDead: 3e6, optimize: true, optimizeMs: OPTIMIZE_MS });
+    solver.status = 'solving'; solver.phase = 'search'; solver.path = null; solver.nodes = 0; solver.score = null; solver.baseScore = null;
     solver.startIds = new Set(a.live.map((t) => t.ID));
     solver.startPos = new Map(a.live.map((t) => [t.ID, posKey(t)]));
     solver.startTiles = a.live.slice();
@@ -331,10 +335,12 @@
     try { r = solver.job.step(30); } catch (e) { console.warn('[shadow-board] solver', e); solver.job = null; solver.status = 'error'; lastSig = ''; return; }
     solver.nodes = r.nodes;
     if (r.status === 'solving') {
-      if (Date.now() - solver.t0 > SOLVE_BUDGET_MS) { solver.status = 'unknown'; solver.job = null; }
+      solver.phase = r.phase || 'search';
+      if (solver.phase === 'search' && Date.now() - solver.t0 > SOLVE_BUDGET_MS) { solver.status = 'unknown'; solver.job = null; }
       else setTimeout(pump, 0);
     } else {
       solver.status = r.status; solver.path = r.path || null; solver.reason = r.reason || null; solver.job = null;
+      solver.score = r.score ?? null; solver.baseScore = r.baseScore ?? null;
       if (r.status === 'win') {
         const chk = Array.isArray(solver.startTiles[0] && solver.startTiles[0].NeighborsLeft) ? verifyPath(solver.startTiles, r.path) : { ok: true };
         solver.verified = chk.ok;
@@ -351,7 +357,7 @@
   // Where is the player along the solution? Re-solve if they left it.
   function solverView(board, a) {
     if (!solver.on) return null;
-    const v = { status: solver.status, nodes: solver.nodes, ms: solver.ms, resolves: solver.resolves, reason: solver.reason || null };
+    const v = { status: solver.status, phase: solver.phase, nodes: solver.nodes, ms: solver.ms, resolves: solver.resolves, reason: solver.reason || null };
     if (solver.status === 'idle' || (solver.status !== 'solving' && !solver.startIds)) { startSolve(board, a); v.status = solver.status; return v; }
     if (solver.status !== 'win') {
       // a finished "lose"/"unknown" result is about the board it was run on
@@ -384,6 +390,7 @@
       pts += 2 * SUIT_VALUE[su] * left * chain; left -= 2;
     }
     v.step = k; v.total = path.length; v.next = path.slice(k, k + 8); v.pts = pts + 288 * (144 / 2);
+    if (solver.baseScore && solver.score) v.gain = solver.score - solver.baseScore;
     return v;
   }
 

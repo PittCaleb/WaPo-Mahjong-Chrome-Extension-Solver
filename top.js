@@ -197,7 +197,7 @@
     if (sv && sv.next) sv.next.slice(0, 5).forEach((pair, i) => pair.forEach((id) => solveStep.set(id, i + 1)));
     const live = tiles.filter((t) => t.live);
     const nDanger = live.filter((t) => t.danger).length;
-    const verdict = !sv ? '' : sv.status === 'solving' ? ' · ⏳ checking…'
+    const verdict = !sv ? '' : sv.status === 'solving' ? (sv.phase === 'optimize' ? ' · ✓ winnable · ⏳ maximizing score…' : ' · ⏳ checking…')
       : sv.status === 'win' ? (sv.step >= sv.total ? ' · ✓ cleared' : ' · ✓ winnable')
       : sv.status === 'lose' ? ' · ✗ not winnable' : sv.status === 'unknown' ? ' · ? no win found yet' : '';
     elStats.textContent = `${state.left} left · ${state.freePairs} free pair${state.freePairs === 1 ? '' : 's'}` +
@@ -230,7 +230,8 @@
       const k = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n);
       const where = (t) => `L${t.l + 1}${t.blocked ? '' : ' free'}`;
       let h = '';
-      if (sv.status === 'solving') h = `<div class="mjsb-sstat">⏳ Searching… ${k(sv.nodes)} positions tried</div>`;
+      if (sv.status === 'solving' && sv.phase === 'optimize') h = `<div class="mjsb-sstat good">✓ Winnable. ⏳ Finding the highest-scoring way to win (a few seconds)…</div>`;
+      else if (sv.status === 'solving') h = `<div class="mjsb-sstat">⏳ Searching… ${k(sv.nodes)} positions tried</div>`;
       else if (sv.status === 'lose') h = `<div class="mjsb-sstat bad">✗ Not winnable from here without a shuffle` + (sv.reason ? ` (${sv.reason})` : ` — checked every line (${k(sv.nodes)} positions)`) + `.</div>`;
       else if (sv.status === 'unknown') h = `<div class="mjsb-sstat warn">? No win found yet (${k(sv.nodes)} positions, ${Math.round(sv.ms / 1000)}s). It may still be winnable: it checks again after every move.</div>`;
       else if (sv.status === 'error') h = `<div class="mjsb-sstat bad">Solver error${sv.reason ? ': ' + sv.reason : ''}. No moves suggested.</div>`;
@@ -241,7 +242,7 @@
           return `<li class="${i === 0 ? 'now' : ''}"><a data-id="${x}">${a.name}</a> <span class="dim">${where(a)}</span> + <a data-id="${y}">${b.name}</a> <span class="dim">${where(b)}</span></li>`;
         }).join('');
         h = `<div class="mjsb-sstat good">✓ Winnable — move ${sv.step + 1} of ${sv.total}` +
-          ` <span class="dim">· ~${fmt(sv.pts)} pts if you follow it` + (sv.resolves ? ` · re-planned ${sv.resolves}×` : '') + `</span></div>` +
+          ` <span class="dim">· ~${fmt(sv.pts)} pts if you follow it` + (sv.gain > 0 ? ` (+${fmt(sv.gain)} from score planning)` : '') + (sv.resolves ? ` · re-planned ${sv.resolves}×` : '') + `</span></div>` +
           `<ol class="mjsb-steps" start="${sv.step + 1}">${steps}</ol>`;
       }
       if ((sv.status === 'lose' || sv.status === 'unknown') && sv.fallback && sv.next && sv.next[0]) {
