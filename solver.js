@@ -107,8 +107,37 @@
       return !(ok(a, b, c, d) || ok(a, c, b, d) || ok(a, d, b, c));
     }
 
+    // Restarts: a depth-first search can sink into a hopeless early choice. Each
+    // run gets a node budget; when it runs out we start over from the top with
+    // slightly shuffled move order, keeping every dead position already proven.
+    let noise = 0, run = 0, runNodes = 0, runLimit = opts.restartNodes || 30000;
+    // Sets down to their last two tiles must each be matched in one go. If set X
+    // has a tile sitting on a tile of set Y, X has to go before Y. A loop of
+    // such "before" links (X before Y before ... before X) can never be played.
+    const rem2 = (g) => { const r = []; for (const i of members[g]) if (!rem[i]) r.push(i); return r; };
+    function before(X, Y) { // some tile of X is on top of some tile of Y
+      for (const x of X) for (const y of Y) if (above2(x, y)) return true;
+      return false;
+    }
+    function loopThrough(g0) {
+      const T = new Map();
+      for (let g = 0; g < NG; g++) if (left[g] === 2) T.set(g, rem2(g));
+      if (!T.has(g0)) return false;
+      const seen = new Set([g0]);
+      const todo = [g0];
+      while (todo.length) {
+        const X = T.get(todo.pop());
+        for (const [g, Y] of T) {
+          if (!before(X, Y)) continue;
+          if (g === g0) return true;
+          if (!seen.has(g)) { seen.add(g); todo.push(g); }
+        }
+      }
+      return false;
+    }
+
     function value(i, lastSuit) {
-      let v = 0;
+      let v = noise ? rnd() / 4294967296 * noise : 0;
       for (const c of coversOf[i]) if (!rem[c]) v += 4;
       for (const c of sideOf[i]) if (!rem[c]) v += 1;
       v += under[i] * 0.5 + depth[i] * 0.1;
@@ -147,7 +176,7 @@
 
     function enter() {
       // returns true if a new frame was pushed
-      nodes++;
+      nodes++; runNodes++;
       if (removed === N) {
         result = { status: 'win', path: stack.map((f) => f.applied), nodes };
         return false;
@@ -155,7 +184,7 @@
       const key = h1 * 2097152 + (h2 & 0x1fffff); // 53-bit numeric key, cheaper than strings
       if (dead.has(key)) return false;
       const top = stack.length ? stack[stack.length - 1].applied : null;
-      if (top && groupDead(G[top[0]])) { dead.add(key); return false; }
+      if (top && (groupDead(G[top[0]]) || (left[G[top[0]]] === 2 && loopThrough(G[top[0]])))) { dead.add(key); return false; }
       const moves = genMoves(top ? suit[top[0]] : opts.lastSuit);
       if (!moves.length) { dead.add(key); return false; }
       stack.push({ moves, k: 0, applied: null, key });
@@ -164,7 +193,14 @@
 
     // root checks
     for (let g = 0; g < NG; g++) if (groupDead(g)) result = { status: 'lose', nodes: 0, reason: 'tiles of one set are stacked so they can never pair up' };
+    for (let g = 0; g < NG && !result; g++) if (left[g] === 2 && loopThrough(g)) result = { status: 'lose', nodes: 0, reason: 'two sets are stacked so each needs the other cleared first' };
     let started = false;
+
+    function restart() {
+      while (stack.length) { const f = stack.pop(); if (f.applied) undo(f.applied); }
+      run++; runNodes = 0; runLimit = Math.round(runLimit * 1.4); noise = opts.noise || 10;
+      if (!enter() && !result) result = { status: 'lose', nodes };
+    }
 
     function step(ms) {
       if (result) return result;
@@ -180,6 +216,7 @@
         f.applied = m;
         enter();
         if (nodes >= maxNodes || dead.size > (opts.maxDead || 8e6)) { result = { status: 'unknown', nodes }; break; }
+        if (runNodes > runLimit && !result) restart();
         if ((nodes & 255) === 0 && Date.now() > end) break;
       }
       if (result) {
@@ -191,7 +228,8 @@
           result.path = pairs;
         }
       }
-      return result || { status: 'solving', nodes };
+      if (result) result.runs = run + 1;
+      return result || { status: 'solving', nodes, runs: run + 1 };
     }
 
     return { step };

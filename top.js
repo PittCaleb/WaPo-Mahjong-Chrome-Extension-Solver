@@ -37,7 +37,7 @@
         <label><input type="checkbox" data-opt="tint"> Tint real board</label>
         <label><input type="checkbox" data-opt="danger"> Flag buried twins</label>
         <button data-act="clear">Clear focus</button>
-        <button data-act="solve" class="mjsb-solvebtn">Solve board</button>
+        <button data-act="solve" class="mjsb-solvebtn">Solver on</button>
       </div>
       <div class="mjsb-solver"></div>
       <div class="mjsb-focus"></div>
@@ -53,7 +53,7 @@
         <span><i class="lg twin"></i>buried twin</span>
         <span><i class="lg gone"></i>removed</span>
         <span><i class="lg plan"></i>streak order</span>
-        <span><i class="lg sol"></i>solver moves</span>
+        <span><i class="lg sol"></i>next moves to win</span>
       </div>
     </div>`;
   document.documentElement.appendChild(root);
@@ -197,8 +197,12 @@
     if (sv && sv.next) sv.next.slice(0, 5).forEach((pair, i) => pair.forEach((id) => solveStep.set(id, i + 1)));
     const live = tiles.filter((t) => t.live);
     const nDanger = live.filter((t) => t.danger).length;
+    const verdict = !sv ? '' : sv.status === 'solving' ? ' · ⏳ checking…'
+      : sv.status === 'win' ? (sv.step >= sv.total ? ' · ✓ cleared' : ' · ✓ winnable')
+      : sv.status === 'lose' ? ' · ✗ not winnable' : sv.status === 'unknown' ? ' · ? no win found yet' : '';
     elStats.textContent = `${state.left} left · ${state.freePairs} free pair${state.freePairs === 1 ? '' : 's'}` +
-      (nDanger ? ` · ⚠ ${nDanger}` : '');
+      (nDanger ? ` · ⚠ ${nDanger}` : '') + verdict;
+    elStats.dataset.verdict = sv ? sv.status : '';
 
     // Layers
     let html = '';
@@ -218,7 +222,8 @@
     const fmt = (n) => n.toLocaleString('en-US');
 
     // Solver
-    btnSolve.textContent = sv ? 'Stop solver' : 'Solve board';
+    btnSolve.textContent = sv ? 'Solver on' : 'Solver off';
+    btnSolve.title = sv ? 'Click to turn the solver off' : 'Click to turn the solver on';
     btnSolve.classList.toggle('on', !!sv);
     if (!sv) elSolver.innerHTML = '';
     else {
@@ -227,8 +232,8 @@
       let h = '';
       if (sv.status === 'solving') h = `<div class="mjsb-sstat">⏳ Searching… ${k(sv.nodes)} positions tried</div>`;
       else if (sv.status === 'lose') h = `<div class="mjsb-sstat bad">✗ Not winnable from here without a shuffle` + (sv.reason ? ` (${sv.reason})` : ` — checked every line (${k(sv.nodes)} positions)`) + `.</div>`;
-      else if (sv.status === 'unknown') h = `<div class="mjsb-sstat warn">? No win found after ${k(sv.nodes)} positions (${Math.round(sv.ms / 1000)}s). Boards like this are usually not winnable without a shuffle, but that isn't proven.</div>`;
-      else if (sv.status === 'error') h = `<div class="mjsb-sstat bad">Solver failed to load.</div>`;
+      else if (sv.status === 'unknown') h = `<div class="mjsb-sstat warn">? No win found yet (${k(sv.nodes)} positions, ${Math.round(sv.ms / 1000)}s). It may still be winnable: it checks again after every move.</div>`;
+      else if (sv.status === 'error') h = `<div class="mjsb-sstat bad">Solver error${sv.reason ? ': ' + sv.reason : ''}. No moves suggested.</div>`;
       else if (sv.status === 'win' && sv.step >= sv.total) h = `<div class="mjsb-sstat good">✓ Solved — board cleared!</div>`;
       else if (sv.status === 'win') {
         const steps = sv.next.map(([x, y], i) => {
@@ -238,6 +243,11 @@
         h = `<div class="mjsb-sstat good">✓ Winnable — move ${sv.step + 1} of ${sv.total}` +
           ` <span class="dim">· ~${fmt(sv.pts)} pts if you follow it` + (sv.resolves ? ` · re-planned ${sv.resolves}×` : '') + `</span></div>` +
           `<ol class="mjsb-steps" start="${sv.step + 1}">${steps}</ol>`;
+      }
+      if ((sv.status === 'lose' || sv.status === 'unknown') && sv.fallback && sv.next && sv.next[0]) {
+        const [x, y] = sv.next[0], a = ids.get(x), b = ids.get(y);
+        h += `<div class="mjsb-sfall">Best move for points: <a data-id="${x}">${a.name}</a> <span class="dim">${where(a)}</span> + ` +
+          `<a data-id="${y}">${b.name}</a> <span class="dim">${where(b)}</span> <span class="dim">· starts a ${sv.fallback.n}-pair ${sv.fallback.name} streak (~${fmt(sv.fallback.pts)})</span></div>`;
       }
       elSolver.innerHTML = h;
     }

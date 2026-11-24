@@ -5,7 +5,7 @@ A personal Chrome extension for the Washington Post Mahjong game
 
 It reads the board straight from the game's own state. That's more reliable
 than watching the tiles fly in: it works with **New Game**, **Continue**,
-shuffles and undo, and it can't miss a tile.
+shuffles, and it can't miss a tile.
 
 ## What it shows
 
@@ -30,15 +30,20 @@ separately, so you can see tiles that are hidden under others.
   Click a suit to number its tiles in play order (1, 2, 3…); the next pair also glows
   blue on the real board.
 
-- **Solve board** button: searches every line of play (with your current board,
-  hidden tiles included) for a way to clear it. You get one of these:
-  - **✓ Winnable**: shows the next moves in order. The next pair glows gold on the real
-    board and is numbered in the panel. If you play something else, it re-plans.
-  - **✗ Not winnable**: proven, so you'll need a shuffle.
-  - **? No win found**: it ran out of time; such boards are usually unwinnable.
+- **Solver** (on by default): as soon as a board appears it searches every line of play
+  (hidden tiles included). The verdict is in the panel header:
+  - **✓ winnable**: the next pair to play glows **purple** on the real board, and the next
+    5 pairs are numbered in the panel. Just play the purple pair each time. If you play
+    something else (or shuffle), it re-plans from where you are.
+  - **✗ not winnable**: proven. The purple pair is then the best move for points.
+  - **? no win found yet**: it ran out of time (45s). The board may still be winnable;
+    it re-checks after every move. Until then, purple is the best move for points.
 
+  Every winning line is replayed against the game's own tile rules before it's shown.
   The game deals tiles at random, so some boards truly can't be won. In testing on
-  random deals of this layout, about 80% were solved (most in under a second).
+  60 random deals of this layout, about 87% were solved, most in under a second.
+  Following only the purple pair cleared every board the solver called winnable.
+  The **Solver on/off** button turns it off.
 
 ### How scoring works (read from the game code)
 

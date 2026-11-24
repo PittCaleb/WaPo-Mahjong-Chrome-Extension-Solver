@@ -4,7 +4,7 @@
 (() => {
   'use strict';
   const TAG = 'mjsb';
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
   const TOP_ORIGIN = 'https://games.washingtonpost.com';
   const POLL_MS = 200;
 
@@ -12,7 +12,7 @@
   const TYPE_SUIT_MATCH = 2; // overwritten below if the game exposes it
   const SUIT_NAMES = ['Dots', 'Bamboo', 'Characters', 'Wind', 'Dragon', 'Flower', 'Season'];
   const SUIT_SHORT = ['●', 'B', 'C', 'Wd', 'Dr', 'Fl', 'Se'];
-  const TINT = { solve: 0xffd84d, plan: 0x7fd0ff, match: 0x7dff8a, danger: 0xff7a7a, twin: 0xffb3b3, none: 0xffffff };
+  const TINT = { solve: 0xb36bff, plan: 0x7fd0ff, match: 0x7dff8a, danger: 0xff7a7a, twin: 0xffb3b3, none: 0xffffff };
 
   let opts = { tint: true, danger: true };
   let manualFocusId = null;
@@ -244,7 +244,7 @@
 
   function plan(board, a) {
     const st = streakState(board);
-    const key = a.live.map((t) => t.ID).join(',') + '|' + st.suit + '|' + st.chain;
+    const key = a.live.map((t) => t.ID + '@' + t.Layer + ',' + t.Col + ',' + t.Row).join(';') + '|' + st.suit + '|' + st.chain; // positions too: a shuffle keeps IDs
     if (key === planKey) return planCache;
     const useNeighbors = a.live.length > 0 && Array.isArray(a.live[0].NeighborsLeft);
     const left = a.live.length;
@@ -265,7 +265,37 @@
 
   // ---------- solver (see solver.js) ----------
   const SOLVE_BUDGET_MS = 45000;
-  const solver = { on: false, status: 'idle', job: null, path: null, nodes: 0, ms: 0, startIds: null, t0: 0, resolves: 0 };
+  const solver = { on: true, status: 'idle', job: null, path: null, nodes: 0, ms: 0, startIds: null, startPos: null, startTiles: null, t0: 0, resolves: 0 };
+  // Where each tile is and what it shows. A shuffle moves tiles around but keeps
+  // their IDs, so the solution must be thrown away when any of this changes.
+  const posKey = (t) => t.Layer + ',' + t.Col + ',' + t.Row + ',' + t.Suit + '.' + t.Value;
+  function boardChanged(a) {
+    if (!solver.startIds || a.live.length !== solver.startIds.size) return true;
+    for (const t of a.live) if (!solver.startIds.has(t.ID) || solver.startPos.get(t.ID) !== posKey(t)) return true;
+    return false;
+  }
+
+  // Independent check of a solution against the game's own tile objects and
+  // its own rules (calculateIsBlocked + doTilesMatch): replay every move and
+  // make sure both tiles are free and match at that moment.
+  function verifyPath(tiles, path) {
+    const byId = new Map(tiles.map((t) => [t.ID, t]));
+    const gone = new Set();
+    const inBoard = (x) => x.IsInBoard && !gone.has(x);
+    const free = (t) => {
+      if (t.NeighborsAbove.some(inBoard)) return false;
+      return !(t.NeighborsLeft.some(inBoard) && t.NeighborsRight.some(inBoard));
+    };
+    for (let i = 0; i < path.length; i++) {
+      const x = byId.get(path[i][0]), y = byId.get(path[i][1]);
+      if (!x || !y || !inBoard(x) || !inBoard(y)) return { ok: false, step: i, why: 'tile missing' };
+      if (!free(x) || !free(y)) return { ok: false, step: i, why: 'tile not free' };
+      if (!tilesMatch(x, y)) return { ok: false, step: i, why: 'tiles do not match' };
+      gone.add(x); gone.add(y);
+    }
+    if (gone.size !== tiles.length) return { ok: false, step: path.length, why: 'board not cleared' };
+    return { ok: true };
+  }
 
   function solverInput(a) {
     const live = a.live;
@@ -289,6 +319,8 @@
     solver.job = S.createSolve(solverInput(a), { lastSuit: streakState(board).suit, maxNodes: 2e7, maxDead: 3e6 });
     solver.status = 'solving'; solver.path = null; solver.nodes = 0;
     solver.startIds = new Set(a.live.map((t) => t.ID));
+    solver.startPos = new Map(a.live.map((t) => [t.ID, posKey(t)]));
+    solver.startTiles = a.live.slice();
     solver.t0 = Date.now();
     setTimeout(pump, 0);
   }
@@ -303,6 +335,14 @@
       else setTimeout(pump, 0);
     } else {
       solver.status = r.status; solver.path = r.path || null; solver.reason = r.reason || null; solver.job = null;
+      if (r.status === 'win') {
+        const chk = Array.isArray(solver.startTiles[0] && solver.startTiles[0].NeighborsLeft) ? verifyPath(solver.startTiles, r.path) : { ok: true };
+        solver.verified = chk.ok;
+        if (!chk.ok) { // never show a path the game would reject
+          console.warn('[shadow-board] solver path failed check', chk);
+          solver.status = 'error'; solver.reason = `internal check failed at move ${chk.step + 1} (${chk.why})`; solver.path = null;
+        }
+      }
     }
     solver.ms = Date.now() - solver.t0;
     lastSig = '';
@@ -315,10 +355,10 @@
     if (solver.status === 'idle' || (solver.status !== 'solving' && !solver.startIds)) { startSolve(board, a); v.status = solver.status; return v; }
     if (solver.status !== 'win') {
       // a finished "lose"/"unknown" result is about the board it was run on
-      const liveIds = a.live.map((t) => t.ID);
-      if (solver.status !== 'solving' && (liveIds.length !== solver.startIds.size || liveIds.some((id) => !solver.startIds.has(id)))) {
+      if (solver.status !== 'solving' && boardChanged(a)) {
         solver.resolves++; startSolve(board, a); v.status = solver.status;
       }
+      if (solver.status === 'lose' || solver.status === 'unknown') bestPointsMove(a, v);
       return v;
     }
     const live = new Set(a.live.map((t) => t.ID));
@@ -328,7 +368,9 @@
     let stillLive = 0;
     for (const id of solver.startIds) if (live.has(id)) stillLive++;
     const removedSinceSolve = solver.startIds.size - stillLive;
-    if (removedSinceSolve !== 2 * k || live.size !== stillLive) {
+    let moved = false;
+    for (const t of a.live) if (solver.startPos.get(t.ID) !== posKey(t)) { moved = true; break; }
+    if (moved || removedSinceSolve !== 2 * k || live.size !== stillLive) {
       solver.resolves++; startSolve(board, a);
       v.status = solver.status; return v;
     }
@@ -343,6 +385,13 @@
     }
     v.step = k; v.total = path.length; v.next = path.slice(k, k + 8); v.pts = pts + 288 * (144 / 2);
     return v;
+  }
+
+  // No win exists (or none was found): still point at a move, the one that
+  // starts the best-scoring streak right now.
+  function bestPointsMove(a, v) {
+    const run = a.plan && a.plan.runs[0];
+    if (run && run.seq.length) { v.next = [run.seq[0]]; v.fallback = { suit: run.suit, name: run.name, n: run.n, pts: run.pts }; }
   }
 
   function applyTints(sc, a) {
@@ -384,7 +433,7 @@
       return;
     }
     const board = sc._board;
-    if (board !== lastBoard) { lastBoard = board; manualFocusId = null; planSuit = null; planKey = ''; tinted.clear(); solver.job = null; solver.status = 'idle'; solver.startIds = null; }
+    if (board !== lastBoard) { lastBoard = board; manualFocusId = null; planSuit = null; planKey = ''; tinted.clear(); solver.job = null; solver.status = 'idle'; solver.startIds = null; solver.resolves = 0; }
     const a = analyse(board);
     a.plan = plan(board, a);
     const pr = planSuit === null ? null : a.plan.runs.find((r) => r.suit === planSuit);
@@ -427,7 +476,7 @@
     const d = ev.data;
     if (d.kind === 'focus') manualFocusId = (d.id === manualFocusId ? null : d.id);
     if (d.kind === 'plan') planSuit = (d.suit === planSuit ? null : d.suit);
-    if (d.kind === 'solve') { solver.on = !!d.on; if (!solver.on) { solver.job = null; solver.status = 'idle'; solver.path = null; solver.startIds = null; } else { solver.status = 'idle'; solver.startIds = null; solver.resolves = 0; } }
+    if (d.kind === 'solve') { solver.on = !!d.on; solver.job = null; solver.status = 'idle'; solver.path = null; solver.startIds = null; solver.resolves = 0; }
     if (d.kind === 'dump') { const sc = scene(); if (sc) post({ kind: 'dump', tiles: solverInput(analyse(sc._board)) }); }
     if (d.kind === 'opts') opts = Object.assign({}, opts, d.opts);
     if (d.kind === 'hello') { lastSig = ''; imagesSent = -1; }
