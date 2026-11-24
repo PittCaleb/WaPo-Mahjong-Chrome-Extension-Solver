@@ -137,3 +137,4 @@
 .mjsb-legend .lg.sol { border: 2px solid #b36bff; }
 .mjsb-sfall { margin-top: 4px; padding: 3px 6px; border-radius: 4px; background: #2a1d3d; color: #d9b8ff; }
 .mjsb-sfall a { color: inherit; }
+.mjsb-now { color: #ffd479; cursor: pointer; text-decoration: underline dotted; }

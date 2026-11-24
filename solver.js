@@ -206,6 +206,8 @@
     // Game scoring: each match scores 2 * suitValue * tilesLeftBeforeMatch * chain,
     // where chain grows by 1 for each back-to-back match of the same suit.
     const SV = opts.suitValue || [2, 3, 1, 4, 5, 6, 7];
+    // stop(): finish the score search now with the best line found so far.
+    let stopNow = false, bestPts = 0;
     const flat = (moves) => { const p = []; for (const m of moves) for (let i = 0; i < m.length; i += 2) p.push([m[i], m[i + 1]]); return p; };
     const keyNow = () => h1 * 2097152 + (h2 & 0x1fffff);
     function scorePairs(pairs) {
@@ -276,13 +278,15 @@
     // Build winning lines greedily by points, only taking a move when a win is
     // still provably reachable after it (otherwise follow a known winning line).
     // Repeat with some randomness and keep the best total. Yields to stay responsive.
-    function* optimize(base) {
-      const optMs = opts.optimizeMs ?? 5000, K = opts.optimizeTries || 12, PB = opts.probeNodes || 4000;
+    function* optimize(base, ms) {
+      // with streaks on, optimizeTries/jitter are the streak planner's settings
+      const optMs = ms ?? opts.optimizeMs ?? 5000, K = (opts.streaks ? opts.pairTries : opts.optimizeTries) || 12, PB = opts.probeNodes || 4000;
       const tStart = Date.now();
       let best = { pairs: base, pts: scorePairs(base) };
+      if (best.pts > bestPts) bestPts = best.pts;
       const basePts = best.pts;
-      for (let it = 0; Date.now() - tStart < optMs && it < (opts.optimizeIters || 200); it++) {
-        const jitter = it === 0 ? 0 : (opts.jitter ?? 0.5);
+      for (let it = 0; !stopNow && Date.now() - tStart < optMs && it < (opts.optimizeIters || 200); it++) {
+        const jitter = it === 0 ? 0 : ((opts.streaks ? opts.pairJitter : opts.jitter) ?? 0.5);
         // After the first pass, keep the best line up to a random point and
         // rebuild only the rest (search near the best line found so far).
         const cut = it === 0 || opts.keepPrefix === false ? 0 : Math.floor(rnd() / 4294967296 * best.pairs.length);
@@ -293,7 +297,7 @@
         while (removed < N) {
           const cands = freePairs().map((m) => (m.r = rate(m, last, chain, jitter), m)).sort((x, y) => y.r - x.r);
           let pick = null;
-          if (Date.now() - tStart < optMs) {
+          if (!stopNow && Date.now() - tStart < optMs) {
             for (const c of cands.slice(0, K)) {
               if (same(c, wit[0])) { pick = c; wit = wit.slice(1); break; }
               apply(c);
@@ -309,10 +313,110 @@
         }
         for (let i = made.length - 1; i >= 0; i--) undo(made[i]);
         const pts = scorePairs(made);
-        if (pts > best.pts) best = { pairs: made, pts };
+        if (pts > best.pts) { best = { pairs: made, pts }; if (pts > bestPts) bestPts = pts; }
         yield;
       }
       return { pairs: best.pairs, pts: best.pts, basePts };
+    }
+
+    // Highest-scoring run of back-to-back matches in one suit, starting with
+    // pair m, from the current position. Exact over the positions it visits
+    // (order inside a run doesn't change its total), capped at `budget` nodes.
+    function bestStreak(m, c0, budget) {
+      const s = suit[m[0]], l0 = N - removed;
+      const seen = new Set(), cur = [];
+      let n = 0, best = null;
+      const gain = (k) => 2 * SV[s] * (l0 - 2 * k) * (c0 + k + 1);
+      function rec(pts) {
+        if (!best || pts > best.pts) best = { pairs: cur.slice(), pts };
+        if (++n > budget) return;
+        const k = cur.length;
+        for (const p of freePairs()) {
+          if (suit[p[0]] !== s) continue;
+          apply(p);
+          const key = keyNow();
+          if (!seen.has(key)) { seen.add(key); cur.push(p); rec(pts + gain(k)); cur.pop(); }
+          undo(p);
+          if (n > budget) return;
+        }
+      }
+      apply(m); seen.add(keyNow()); cur.push(m); rec(gain(0)); cur.pop(); undo(m);
+      return best;
+    }
+
+    // Like optimize(), but each step is a whole same-suit run (found by
+    // bestStreak) instead of one pair, so it deliberately goes after long
+    // streaks while the board is full. A run is only taken if a win is still
+    // provably reachable after it (or after a shorter piece of it).
+    function* optimizeStreaks(base, ms) {
+      const optMs = ms ?? opts.optimizeMs ?? 5000, K = opts.optimizeTries || 6, PB = opts.probeNodes || 4000;
+      const SB = opts.streakNodes || 3000;
+      const tStart = Date.now();
+      let best = { pairs: base, pts: scorePairs(base) };
+      if (best.pts > bestPts) bestPts = best.pts;
+      const basePts = best.pts;
+      // Searching near one line tends to get stuck, so every restartMs start
+      // over from the plain winning line (keeping the overall best).
+      const restartMs = opts.restartMs || 1e9;
+      let cur = best, tRun = tStart;
+      for (let it = 0; !stopNow && Date.now() - tStart < optMs && it < (opts.streakIters || 1e9); it++) {
+        if (Date.now() - tRun > restartMs) { cur = { pairs: base, pts: basePts }; tRun = Date.now(); }
+        const jitter = it === 0 ? 0 : (opts.jitter ?? 0.5);
+        const cut = it === 0 || cur.pairs === base || opts.keepPrefix === false ? 0 : Math.floor(Math.pow(rnd() / 4294967296, opts.cutPower ?? 1) * cur.pairs.length);
+        let wit = cur.pairs.slice(cut);
+        const made = cur.pairs.slice(0, cut);
+        let last = opts.lastSuit ?? null, chain = opts.chain || 0;
+        const take = (p) => { apply(p); made.push(p); const su = suit[p[0]]; chain = su === last ? chain + 1 : 1; last = su; };
+        for (const m of made) { apply(m); const su = suit[m[0]]; chain = su === last ? chain + 1 : 1; last = su; }
+        while (removed < N) {
+          let picked = null;
+          if (!stopNow && Date.now() - tStart < optMs) {
+            const cands = [];
+            for (const m of freePairs()) {
+              const c0 = suit[m[0]] === last ? chain : 0;
+              const st = bestStreak(m, c0, SB);
+              st.r = jitter ? st.pts * (1 + jitter * rnd() / 4294967296) : st.pts;
+              cands.push(st);
+              yield;
+            }
+            cands.sort((x, y) => y.r - x.r);
+            outer: for (const c of cands.slice(0, K)) {
+              const lens = [...new Set([c.pairs.length, Math.ceil(c.pairs.length / 2), 1])];
+              for (const len of lens) {
+                const run = c.pairs.slice(0, len);
+                // still on the known winning line? no proof needed
+                let onWit = run.length <= wit.length;
+                for (let i = 0; onWit && i < run.length; i++) onWit = same(run[i], wit[i]);
+                if (onWit) { picked = run; wit = wit.slice(run.length); break outer; }
+                for (const p of run) apply(p);
+                const r = probe(PB, run[run.length - 1]);
+                for (let i = run.length - 1; i >= 0; i--) undo(run[i]);
+                yield;
+                if (r.status === 'win') { picked = run; wit = flat(r.moves); break outer; }
+              }
+            }
+          }
+          if (!picked) { picked = [wit[0]]; wit = wit.slice(1); }
+          for (const p of picked) take(p);
+        }
+        for (let i = made.length - 1; i >= 0; i--) undo(made[i]);
+        const pts = scorePairs(made);
+        if (pts > cur.pts) cur = { pairs: made, pts };
+        if (pts > best.pts) { best = { pairs: made, pts }; if (pts > bestPts) bestPts = pts; }
+        yield;
+      }
+      return { pairs: best.pairs, pts: best.pts, basePts };
+    }
+
+    // Two different searches, each from the plain winning line; keep whichever
+    // finds more points. The pair-by-pair one is quick (and now and then finds
+    // a line the streak planner misses); the streak planner gets the rest.
+    function* optimizeBoth(base) {
+      const ms = opts.optimizeMs ?? 5000, t = Date.now();
+      const a = yield* optimize(base, ms * (opts.pairShare ?? 0.15));
+      const b = yield* optimizeStreaks(base, ms - (Date.now() - t));
+      const w = b.pts >= a.pts ? b : a;
+      return { pairs: w.pairs, pts: w.pts, basePts: a.basePts };
     }
 
     let gen = null, phase = 'search';
@@ -336,7 +440,7 @@
             return finish();
           }
         }
-        return { status: 'solving', phase, nodes };
+        return { status: 'solving', phase, nodes, best: bestPts };
       }
       if (!started) { started = true; if (!enter() && !result) result = { status: 'lose', nodes }; }
       while (!result) {
@@ -358,13 +462,13 @@
         for (let i = stack.length - 1; i >= 0; i--) if (stack[i].applied) { undo(stack[i].applied); stack[i].applied = null; }
         stack.length = 0;
         result.path = flat(result.path);
-        if (opts.optimize) { gen = optimize(result.path); phase = 'optimize'; return { status: 'solving', phase, nodes }; }
+        if (opts.optimize) { gen = opts.streaks ? optimizeBoth(result.path) : optimize(result.path); phase = 'optimize'; return { status: 'solving', phase, nodes }; }
         result.score = scorePairs(result.path);
       }
       return finish();
     }
 
-    return { step };
+    return { step, stop: () => { stopNow = true; } };
   }
 
   const api = { createSolve };

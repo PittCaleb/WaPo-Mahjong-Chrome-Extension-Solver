@@ -4,7 +4,7 @@
 (() => {
   'use strict';
   const TAG = 'mjsb';
-  const VERSION = '1.4.0';
+  const VERSION = '1.5.0';
   const TOP_ORIGIN = 'https://games.washingtonpost.com';
   const POLL_MS = 200;
 
@@ -265,7 +265,7 @@
 
   // ---------- solver (see solver.js) ----------
   const SOLVE_BUDGET_MS = 45000; // search for a win
-  const OPTIMIZE_MS = 5000; // then improve its score
+  const OPTIMIZE_MS = 30000; // then look for the highest-scoring win (can be cut short from the panel)
   const solver = { on: true, status: 'idle', job: null, path: null, nodes: 0, ms: 0, startIds: null, startPos: null, startTiles: null, t0: 0, resolves: 0 };
   // Where each tile is and what it shows. A shuffle moves tiles around but keeps
   // their IDs, so the solution must be thrown away when any of this changes.
@@ -320,8 +320,8 @@
     const st = streakState(board);
     // optimize: once a win is found, spend up to OPTIMIZE_MS finding a
     // higher-scoring way to win (never trading away the win).
-    solver.job = S.createSolve(solverInput(a), { lastSuit: st.suit, chain: st.chain, suitValue: SUIT_VALUE, maxNodes: 2e7, maxDead: 3e6, optimize: true, optimizeMs: OPTIMIZE_MS });
-    solver.status = 'solving'; solver.phase = 'search'; solver.path = null; solver.nodes = 0; solver.score = null; solver.baseScore = null;
+    solver.job = S.createSolve(solverInput(a), { lastSuit: st.suit, chain: st.chain, suitValue: SUIT_VALUE, maxNodes: 2e7, maxDead: 3e6, optimize: true, optimizeMs: OPTIMIZE_MS, streaks: true, jitter: 1.5, optimizeTries: 4, streakNodes: 1500, restartMs: 10000 });
+    solver.status = 'solving'; solver.phase = 'search'; solver.path = null; solver.nodes = 0; solver.score = null; solver.baseScore = null; solver.optT0 = 0; solver.optBest = 0;
     solver.startIds = new Set(a.live.map((t) => t.ID));
     solver.startPos = new Map(a.live.map((t) => [t.ID, posKey(t)]));
     solver.startTiles = a.live.slice();
@@ -336,6 +336,7 @@
     solver.nodes = r.nodes;
     if (r.status === 'solving') {
       solver.phase = r.phase || 'search';
+      if (solver.phase === 'optimize') { if (!solver.optT0) solver.optT0 = Date.now(); solver.optBest = r.best || 0; }
       if (solver.phase === 'search' && Date.now() - solver.t0 > SOLVE_BUDGET_MS) { solver.status = 'unknown'; solver.job = null; }
       else setTimeout(pump, 0);
     } else {
@@ -358,6 +359,10 @@
   function solverView(board, a) {
     if (!solver.on) return null;
     const v = { status: solver.status, phase: solver.phase, nodes: solver.nodes, ms: solver.ms, resolves: solver.resolves, reason: solver.reason || null };
+    if (solver.status === 'solving' && solver.phase === 'optimize' && solver.optT0) {
+      v.optLeft = Math.max(0, Math.ceil((OPTIMIZE_MS - (Date.now() - solver.optT0)) / 1000));
+      v.optBest = solver.optBest ? solver.optBest + 288 * (144 / 2) : 0;
+    }
     if (solver.status === 'idle' || (solver.status !== 'solving' && !solver.startIds)) { startSolve(board, a); v.status = solver.status; return v; }
     if (solver.status !== 'win') {
       // a finished "lose"/"unknown" result is about the board it was run on
@@ -484,6 +489,7 @@
     if (d.kind === 'focus') manualFocusId = (d.id === manualFocusId ? null : d.id);
     if (d.kind === 'plan') planSuit = (d.suit === planSuit ? null : d.suit);
     if (d.kind === 'solve') { solver.on = !!d.on; solver.job = null; solver.status = 'idle'; solver.path = null; solver.startIds = null; solver.resolves = 0; }
+    if (d.kind === 'solveNow' && solver.job && solver.job.stop) solver.job.stop();
     if (d.kind === 'dump') { const sc = scene(); if (sc) post({ kind: 'dump', tiles: solverInput(analyse(sc._board)) }); }
     if (d.kind === 'opts') opts = Object.assign({}, opts, d.opts);
     if (d.kind === 'hello') { lastSig = ''; imagesSent = -1; }

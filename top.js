@@ -97,6 +97,7 @@
       if (a === 'bigger') ui.unit = Math.min(30, ui.unit + 2);
       if (a === 'min') ui.min = !ui.min;
       if (a === 'solve') { send({ kind: 'solve', on: !(state && state.solver) }); return; }
+      if (a === 'solveNow') { send({ kind: 'solveNow' }); return; }
       if (a === 'clear') send({ kind: 'focus', id: state && state.focusSource === 'shadow' ? state.focusId : null });
       save(); place(); render();
       return;
@@ -197,7 +198,7 @@
     if (sv && sv.next) sv.next.slice(0, 5).forEach((pair, i) => pair.forEach((id) => solveStep.set(id, i + 1)));
     const live = tiles.filter((t) => t.live);
     const nDanger = live.filter((t) => t.danger).length;
-    const verdict = !sv ? '' : sv.status === 'solving' ? (sv.phase === 'optimize' ? ' · ✓ winnable · ⏳ maximizing score…' : ' · ⏳ checking…')
+    const verdict = !sv ? '' : sv.status === 'solving' ? (sv.phase === 'optimize' ? ' · ✓ winnable · ⏳ maximizing score' + (sv.optLeft != null ? ' ' + sv.optLeft + 's' : '…') : ' · ⏳ checking…')
       : sv.status === 'win' ? (sv.step >= sv.total ? ' · ✓ cleared' : ' · ✓ winnable')
       : sv.status === 'lose' ? ' · ✗ not winnable' : sv.status === 'unknown' ? ' · ? no win found yet' : '';
     elStats.textContent = `${state.left} left · ${state.freePairs} free pair${state.freePairs === 1 ? '' : 's'}` +
@@ -230,7 +231,9 @@
       const k = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n);
       const where = (t) => `L${t.l + 1}${t.blocked ? '' : ' free'}`;
       let h = '';
-      if (sv.status === 'solving' && sv.phase === 'optimize') h = `<div class="mjsb-sstat good">✓ Winnable. ⏳ Finding the highest-scoring way to win (a few seconds)…</div>`;
+      if (sv.status === 'solving' && sv.phase === 'optimize') h = `<div class="mjsb-sstat good">✓ Winnable. ⏳ Looking for the highest-scoring way to win` +
+        (sv.optLeft != null ? ` <span class="dim">· ${sv.optLeft}s left` + (sv.optBest ? ` · best so far ~${fmt(sv.optBest)} pts` : '') + `</span>` : '') +
+        ` · <a class="mjsb-now" data-act="solveNow">use it now</a></div>`;
       else if (sv.status === 'solving') h = `<div class="mjsb-sstat">⏳ Searching… ${k(sv.nodes)} positions tried</div>`;
       else if (sv.status === 'lose') h = `<div class="mjsb-sstat bad">✗ Not winnable from here without a shuffle` + (sv.reason ? ` (${sv.reason})` : ` — checked every line (${k(sv.nodes)} positions)`) + `.</div>`;
       else if (sv.status === 'unknown') h = `<div class="mjsb-sstat warn">? No win found yet (${k(sv.nodes)} positions, ${Math.round(sv.ms / 1000)}s). It may still be winnable: it checks again after every move.</div>`;
