@@ -138,3 +138,17 @@
 .mjsb-sfall { margin-top: 4px; padding: 3px 6px; border-radius: 4px; background: #2a1d3d; color: #d9b8ff; }
 .mjsb-sfall a { color: inherit; }
 .mjsb-now { color: #ffd479; cursor: pointer; text-decoration: underline dotted; }
+
+/* high-score hunt */
+.mjsb-hunt { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 8px; }
+.mjsb-hunt label { display: flex; gap: 4px; align-items: center; }
+.mjsb-hunt input.mjsb-hs {
+  width: 90px; background: #0f1d18; color: #e8efe9; border: 1px solid #3c6b59; border-radius: 4px;
+  padding: 1px 5px; font: inherit; user-select: text;
+}
+.mjsb-hunt input.mjsb-hs:disabled { opacity: .6; }
+#mjsb-root button.mjsb-huntbtn.on { background: #6b4a12; border-color: #ffd479; }
+.mjsb-hstat { flex-basis: 100%; }
+.mjsb-hstat:empty { display: none; }
+.mjsb-hstat.run { padding: 3px 6px; border-radius: 4px; background: #2e2614; color: #ffe2a3; }
+.mjsb-hstat.found { padding: 4px 6px; border-radius: 4px; background: #163d22; color: #9dffb0; font-size: 13px; }

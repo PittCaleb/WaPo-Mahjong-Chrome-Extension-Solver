@@ -10,8 +10,10 @@ The panel:
 - if it can, lights up the next pair to play in purple, along a winning line that
   also aims for the highest score it can find.
 
-It never makes moves for you. It only reads the board and, if you turn the option
-on, recolors tiles on the game board.
+It never makes moves for you. It reads the board and, if you turn the option on,
+recolors tiles on the game board. The one time it changes the game is when you ask
+it to [hunt for a high-scoring board](#high-score-hunt): then it deals new boards
+for you, the same way the game's New Game button does.
 
 > Not affiliated with The Washington Post or Arkadium. This is a personal project.
 > The game's scoring rules below were worked out from the game's own code and
@@ -34,6 +36,7 @@ on, recolors tiles on the game board.
    - [Streak planner](#streak-planner)
    - [Solver on](#solver-on)
    - [Solver off](#solver-off)
+   - [High-score hunt](#high-score-hunt)
 4. [How it works](#how-it-works)
 5. [Troubleshooting](#troubleshooting)
 
@@ -406,6 +409,49 @@ Use this if you'd rather plan your own game and just see what's hidden. The stre
 planner only looks at what's playable right now, though. It can't tell whether a
 streak will leave the board unwinnable. With the solver off, it's easy to score big
 early and then get stuck.
+
+### High-score hunt
+
+Some deals allow far higher scores than others, because the tiles happen to line up
+for long streaks. The hunt keeps dealing new boards until it finds one that can beat
+your best.
+
+1. Type your high score into **My high score** at the top of the panel. It's saved
+   for next time.
+2. Click **Hunt for a better board**. The button turns gold and reads **Stop hunt**.
+   The solver turns on if it was off.
+3. Leave the game tab open and on screen. A status line keeps you posted:
+
+   > 🔎 Searching board **37** (00:41:12) for a new high score above **101,568** ·
+   > last board ~81,200
+
+For each board it deals, the hunt runs the solver and checks the best winning score
+it can find, including the 20,736 clear bonus.
+
+- **It beats your score:** the hunt stops at once. You get a green "🎉 Found one!"
+  banner with the score, board count and time taken, a short chime, and a flashing
+  tab title until you click or press a key. The score search keeps running for its
+  full 30 seconds, so the purple plan you follow is the best it can find for that
+  board.
+- **It doesn't:** it deals the next board. To keep moving, it gives up on a board
+  early when:
+  - no winning line turns up within 10 seconds ("no quick win");
+  - the board is proven unwinnable ("not winnable");
+  - after 10 seconds of score search, the best line is still under 90% of your
+    score.
+
+Expect about 6 boards a minute. Most boards land between 70,000 and 90,000 points,
+so a high target can take a long while. The hunt never makes moves. Be aware of
+two things:
+
+- **It abandons boards.** If you start a hunt partway through a game, that game is
+  thrown away. Skipped boards may also count as started games in the site's stats.
+- **The tab must be on screen.** Chrome freezes the game's animation in background
+  tabs, so no new boards get dealt until you come back. Clicking into another
+  window is fine. To use your computer while it hunts, drag the game tab into its
+  own window and leave it uncovered.
+
+Click **Stop hunt** any time to stop. The board in front of you stays put.
 
 ---
 
