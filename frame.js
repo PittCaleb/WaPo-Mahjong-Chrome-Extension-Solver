@@ -5,7 +5,7 @@
 (() => {
   'use strict';
   const TAG = 'mjsb';
-  const VERSION = '1.6.0';
+  const VERSION = '1.7.0';
   const TOP_ORIGIN = 'https://games.washingtonpost.com';
   const POLL_MS = 200;
 
@@ -275,7 +275,7 @@
   const HUNT_SEARCH_MS = 10000; // no win found this fast: skip the board
   const HUNT_GIVEUP_MS = 10000; // after this long maximizing score...
   const HUNT_GIVEUP_FRAC = 0.9; // ...skip if still under 90% of the target
-  const hunt = { on: false, target: 0, boards: 0, counted: null, t0: 0, last: null, found: null, pending: false, abandoned: null, pendingAt: 0 };
+  const hunt = { seq: 0, log: [], on: false, target: 0, boards: 0, counted: null, t0: 0, last: null, found: null, pending: false, abandoned: null, pendingAt: 0 };
 
   // Same steps as the menu's New Game: forget the saved board, restart the scene.
   function dealNewBoard(board) {
@@ -288,6 +288,13 @@
       g.gameContext.savedProgress = null;
       g.state.start('GameScene', true);
     } catch (e) { console.warn('[shadow-board] new deal failed', e); }
+  }
+
+  // One result per board the hunt finishes with: its score, or 0 / -1 when no
+  // win was found. The panel keeps the running histogram.
+  function record(v) {
+    hunt.last = v; hunt.seq++;
+    hunt.log.push({ seq: hunt.seq, v }); if (hunt.log.length > 8) hunt.log.shift();
   }
 
   function huntStep(board, a) {
@@ -304,22 +311,22 @@
     if (hunt.counted !== board) { hunt.counted = board; hunt.boards++; }
     if (solver.status === 'win') {
       const total = (solver.score || 0) + CLEAR_BONUS;
-      hunt.last = total;
+      record(total);
       if (total > hunt.target) { hunt.on = false; hunt.found = { pts: total, boards: hunt.boards, ms: now - hunt.t0 }; }
       else dealNewBoard(board);
     } else if (solver.status === 'lose' || solver.status === 'unknown' || solver.status === 'error') {
-      hunt.last = solver.status === 'lose' ? 0 : -1; dealNewBoard(board); // -1: no win found fast enough
+      record(solver.status === 'lose' ? 0 : -1); dealNewBoard(board); // -1: no win found fast enough
     } else if (solver.status === 'solving' && solver.phase === 'optimize' && solver.optT0) {
       const best = (solver.optBest || 0) + CLEAR_BONUS;
       // Beats it: stop hunting, but let the score search finish so the plan
       // you play is the best one it can find for this board.
-      if (best > hunt.target) { hunt.on = false; hunt.last = best; hunt.found = { pts: best, boards: hunt.boards, ms: now - hunt.t0 }; }
-      else if (now - solver.optT0 > HUNT_GIVEUP_MS && best < HUNT_GIVEUP_FRAC * hunt.target) { hunt.last = best; dealNewBoard(board); }
+      if (best > hunt.target) { hunt.on = false; record(best); hunt.found = { pts: best, boards: hunt.boards, ms: now - hunt.t0 }; }
+      else if (now - solver.optT0 > HUNT_GIVEUP_MS && best < HUNT_GIVEUP_FRAC * hunt.target) { record(best); dealNewBoard(board); }
     }
   }
 
   function huntView() {
-    return { on: hunt.on, target: hunt.target, boards: hunt.boards, t0: hunt.t0, last: hunt.last, found: hunt.found, pending: hunt.pending };
+    return { on: hunt.on, target: hunt.target, boards: hunt.boards, t0: hunt.t0, last: hunt.last, found: hunt.found, pending: hunt.pending, log: hunt.log };
   }
 
   // Where each tile is and what it shows. A shuffle moves tiles around but keeps

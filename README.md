@@ -37,6 +37,7 @@ for you, the same way the game's New Game button does.
    - [Solver on](#solver-on)
    - [Solver off](#solver-off)
    - [High-score hunt](#high-score-hunt)
+     - [Board-score histogram](#board-score-histogram)
 4. [How it works](#how-it-works)
 5. [Troubleshooting](#troubleshooting)
 
@@ -452,6 +453,23 @@ two things:
   own window and leave it uncovered.
 
 Click **Stop hunt** any time to stop. The board in front of you stays put.
+
+#### Board-score histogram
+
+Under the status line, a bar chart shows how every board the hunt has finished
+scored. It updates as each board is recorded and builds up across hunts and visits.
+
+- **no soln** (grey): no winning line was found, either proven unwinnable or no win
+  within 10 seconds.
+- **The other bars:** 5,000-point buckets labelled by their lower end. For
+  example, **80k** means 80,000–84,999. Hover over a bar for its exact range and
+  count.
+- **Gold bars:** buckets that reach past your high score.
+- **Scores:** a board skipped early is recorded at its best score so far, which is
+  often a little below what a full search would find. The board that beats your
+  score is recorded too.
+
+Click **reset** to clear the chart.
 
 ---
 

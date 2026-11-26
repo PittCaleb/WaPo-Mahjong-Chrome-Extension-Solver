@@ -43,6 +43,7 @@
         <label>My high score <input type="text" inputmode="numeric" class="mjsb-hs" placeholder="e.g. 95,000"></label>
         <button data-act="hunt" class="mjsb-huntbtn" title="Deal new boards until one can beat this score">Hunt for a better board</button>
         <div class="mjsb-hstat"></div>
+        <div class="mjsb-hist"></div>
       </div>
       <div class="mjsb-solver"></div>
       <div class="mjsb-focus"></div>
@@ -66,11 +67,11 @@
   const $ = (s) => root.querySelector(s);
   const elStats = $('.mjsb-stats'), elFocus = $('.mjsb-focus'), elLayers = $('.mjsb-layers'), elDanger = $('.mjsb-danger'), elStreaks = $('.mjsb-streaks'), elSolver = $('.mjsb-solver'), btnSolve = $('.mjsb-solvebtn');
   root.querySelectorAll('[data-opt]').forEach((cb) => { cb.checked = !!ui[cb.dataset.opt]; });
-  const elHs = $('.mjsb-hs'), btnHunt = $('.mjsb-huntbtn'), elHstat = $('.mjsb-hstat');
+  const elHs = $('.mjsb-hs'), btnHunt = $('.mjsb-huntbtn'), elHstat = $('.mjsb-hstat'), elHist = $('.mjsb-hist');
   const fmtN = (n) => Math.round(n).toLocaleString('en-US');
   const parseScore = (v) => Number(String(v).replace(/[^0-9]/g, '')) || 0;
   if (ui.highScore) elHs.value = fmtN(ui.highScore);
-  elHs.addEventListener('change', () => { ui.highScore = parseScore(elHs.value); elHs.value = ui.highScore ? fmtN(ui.highScore) : ''; save(); });
+  elHs.addEventListener('change', () => { ui.highScore = parseScore(elHs.value); elHs.value = ui.highScore ? fmtN(ui.highScore) : ''; save(); renderHist(); });
   elHs.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') elHs.blur(); });
 
   // ---------- high-score hunt (the work happens in frame.js) ----------
@@ -120,6 +121,47 @@
   }
   setInterval(() => { if (hunt && hunt.on) renderHunt(); }, 1000);
 
+  // ---------- score histogram (every board any hunt has finished with) ----------
+  // ui.hist = { none: n, b: { <bucket start in thousands>: n } }, saved with the panel settings.
+  const BUCKET = 5000;
+  let seenSeq = 0; // last hunt result already counted (per page load)
+  function addResults(log) {
+    if (!log || !log.length) return;
+    if (log[log.length - 1].seq < seenSeq) seenSeq = 0; // game iframe restarted its count
+    const fresh = log.filter((r) => r.seq > seenSeq);
+    if (!fresh.length) return;
+    const h = ui.hist || (ui.hist = { none: 0, b: {} });
+    for (const r of fresh) {
+      if (r.v > 0) { const k = Math.floor(r.v / BUCKET) * (BUCKET / 1000); h.b[k] = (h.b[k] || 0) + 1; }
+      else h.none++;
+    }
+    seenSeq = fresh[fresh.length - 1].seq;
+    save(); renderHist();
+  }
+  function renderHist() {
+    const h = ui.hist;
+    const keys = h ? Object.keys(h.b).map(Number) : [];
+    const total = h ? h.none + keys.reduce((s, k) => s + h.b[k], 0) : 0;
+    if (!total) { elHist.innerHTML = ''; return; }
+    const cols = [{ label: 'no soln', title: 'No winning line found (not winnable, or no quick win)', n: h.none, cls: 'none' }];
+    const step = BUCKET / 1000;
+    const tgt = ui.highScore || 0;
+    if (keys.length) {
+      for (let k = Math.min(...keys); k <= Math.max(...keys); k += step) {
+        cols.push({ label: k + 'k', title: `${fmtN(k * 1000)}–${fmtN((k + step) * 1000 - 1)} pts`, n: h.b[k] || 0,
+          cls: tgt && (k + step) * 1000 > tgt ? 'hi' : '' });
+      }
+    }
+    const max = Math.max(...cols.map((c) => c.n), 1);
+    elHist.innerHTML =
+      `<div class="mjsb-hhead">Board scores from all hunts · ${fmtN(total)} board${total === 1 ? '' : 's'} ` +
+      `<a class="mjsb-now" data-act="histReset">reset</a></div><div class="mjsb-hbars">` +
+      cols.map((c) => `<div class="mjsb-hcol ${c.cls}" title="${c.title}: ${fmtN(c.n)}">` +
+        `<span class="n">${c.n || ''}</span><span class="bar" style="height:${Math.round(c.n / max * 64)}px"></span>` +
+        `<span class="l">${c.label}</span></div>`).join('') + `</div>`;
+  }
+  renderHist();
+
   function place() {
     const w = root.offsetWidth || 420;
     if (ui.x === null) ui.x = Math.max(8, window.innerWidth - w - 16);
@@ -165,6 +207,7 @@
         send({ kind: 'hunt', on: true, target: ui.highScore });
         return;
       }
+      if (a === 'histReset') { if (confirm('Clear the board-score histogram?')) { ui.hist = null; save(); renderHist(); } return; }
       if (a === 'huntClear') { send({ kind: 'huntClear' }); stopFlash(); return; }
       if (a === 'clear') send({ kind: 'focus', id: state && state.focusSource === 'shadow' ? state.focusId : null });
       save(); place(); render();
@@ -197,6 +240,7 @@
     if (ev.data.images) Object.assign(images, ev.data.images);
     if (ev.data.hunt) {
       hunt = ev.data.hunt;
+      addResults(hunt.log);
       const f = hunt.found;
       if (f && announced !== f.ms) { announced = f.ms; chime(); flashTitle(`🎉 ${fmtN(f.pts)} pts board found!`); }
       renderHunt();
