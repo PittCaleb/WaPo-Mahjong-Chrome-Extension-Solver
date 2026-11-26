@@ -39,6 +39,11 @@
         <button data-act="clear">Clear focus</button>
         <button data-act="solve" class="mjsb-solvebtn">Solver on</button>
       </div>
+      <div class="mjsb-hunt">
+        <label>My high score <input type="text" inputmode="numeric" class="mjsb-hs" placeholder="e.g. 95,000"></label>
+        <button data-act="hunt" class="mjsb-huntbtn" title="Deal new boards until one can beat this score">Hunt for a better board</button>
+        <div class="mjsb-hstat"></div>
+      </div>
       <div class="mjsb-solver"></div>
       <div class="mjsb-focus"></div>
       <div class="mjsb-streaks"></div>
@@ -61,6 +66,59 @@
   const $ = (s) => root.querySelector(s);
   const elStats = $('.mjsb-stats'), elFocus = $('.mjsb-focus'), elLayers = $('.mjsb-layers'), elDanger = $('.mjsb-danger'), elStreaks = $('.mjsb-streaks'), elSolver = $('.mjsb-solver'), btnSolve = $('.mjsb-solvebtn');
   root.querySelectorAll('[data-opt]').forEach((cb) => { cb.checked = !!ui[cb.dataset.opt]; });
+  const elHs = $('.mjsb-hs'), btnHunt = $('.mjsb-huntbtn'), elHstat = $('.mjsb-hstat');
+  const fmtN = (n) => Math.round(n).toLocaleString('en-US');
+  const parseScore = (v) => Number(String(v).replace(/[^0-9]/g, '')) || 0;
+  if (ui.highScore) elHs.value = fmtN(ui.highScore);
+  elHs.addEventListener('change', () => { ui.highScore = parseScore(elHs.value); elHs.value = ui.highScore ? fmtN(ui.highScore) : ''; save(); });
+  elHs.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') elHs.blur(); });
+
+  // ---------- high-score hunt (the work happens in frame.js) ----------
+  let hunt = null; // last hunt status from the frame
+  let announced = null; // found result we've already chimed for
+  let audio = null;
+  const hms = (ms) => { const t = Math.floor(ms / 1000); return [t / 3600, (t / 60) % 60, t % 60].map((x) => String(Math.floor(x)).padStart(2, '0')).join(':'); };
+  function chime() {
+    try {
+      const ctx = audio; if (!ctx) return;
+      [660, 880, 1320].forEach((f, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + i * 0.18;
+        o.frequency.value = f; o.type = 'sine';
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+        o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.55);
+      });
+    } catch (e) {}
+  }
+  // Flash the tab title until you come back and click or press a key.
+  let flashTimer = null;
+  const baseTitle = document.title;
+  function flashTitle(msg) {
+    stopFlash();
+    let on = false;
+    flashTimer = setInterval(() => { on = !on; document.title = on ? msg : baseTitle; }, 900);
+    const stop = () => { stopFlash(); window.removeEventListener('mousedown', stop, true); window.removeEventListener('keydown', stop, true); };
+    window.addEventListener('mousedown', stop, true); window.addEventListener('keydown', stop, true);
+  }
+  function stopFlash() { if (flashTimer) { clearInterval(flashTimer); flashTimer = null; document.title = baseTitle; } }
+
+  function renderHunt() {
+    const h = hunt;
+    const running = !!(h && h.on);
+    btnHunt.textContent = running ? 'Stop hunt' : 'Hunt for a better board';
+    btnHunt.classList.toggle('on', running);
+    elHs.disabled = running;
+    let html = '';
+    if (running) {
+      html = `🔎 Searching board <b>${h.boards || 1}</b> (${hms(Date.now() - h.t0)}) for a new high score above <b>${fmtN(h.target)}</b>` +
+        (h.last > 0 ? ` <span class="dim">· last board ~${fmtN(h.last)}</span>` : h.last === 0 ? ` <span class="dim">· last board not winnable</span>` : h.last === -1 ? ` <span class="dim">· last board: no quick win</span>` : '');
+    } else if (h && h.found) {
+      html = `🎉 <b>Found one!</b> ~${fmtN(h.found.pts)} pts on board ${h.found.boards} after ${hms(h.found.ms)}. ` +
+        `Follow the purple moves below. <a class="mjsb-now" data-act="huntClear">dismiss</a>`;
+    }
+    elHstat.innerHTML = html;
+    elHstat.className = 'mjsb-hstat' + (running ? ' run' : h && h.found ? ' found' : '');
+  }
+  setInterval(() => { if (hunt && hunt.on) renderHunt(); }, 1000);
 
   function place() {
     const w = root.offsetWidth || 420;
@@ -98,6 +156,16 @@
       if (a === 'min') ui.min = !ui.min;
       if (a === 'solve') { send({ kind: 'solve', on: !(state && state.solver) }); return; }
       if (a === 'solveNow') { send({ kind: 'solveNow' }); return; }
+      if (a === 'hunt') {
+        if (hunt && hunt.on) { send({ kind: 'hunt', on: false }); return; }
+        ui.highScore = parseScore(elHs.value); save();
+        if (!ui.highScore) { elHs.focus(); elHstat.innerHTML = 'Enter your high score first.'; return; }
+        try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) {}
+        stopFlash(); announced = null;
+        send({ kind: 'hunt', on: true, target: ui.highScore });
+        return;
+      }
+      if (a === 'huntClear') { send({ kind: 'huntClear' }); stopFlash(); return; }
       if (a === 'clear') send({ kind: 'focus', id: state && state.focusSource === 'shadow' ? state.focusId : null });
       save(); place(); render();
       return;
@@ -127,6 +195,12 @@
   window.addEventListener('message', (ev) => {
     if (ev.origin !== FRAME_ORIGIN || !ev.data || ev.data.src !== TAG || ev.data.kind !== 'state') return;
     if (ev.data.images) Object.assign(images, ev.data.images);
+    if (ev.data.hunt) {
+      hunt = ev.data.hunt;
+      const f = hunt.found;
+      if (f && announced !== f.ms) { announced = f.ms; chime(); flashTitle(`🎉 ${fmtN(f.pts)} pts board found!`); }
+      renderHunt();
+    }
     state = ev.data;
     render();
   });

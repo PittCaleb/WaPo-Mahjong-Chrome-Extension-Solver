@@ -1,10 +1,11 @@
 // Runs inside the Arkadium game iframe (page's MAIN world) so it can read the
-// live Phaser game. It never changes game state; it only reads the board,
-// optionally tints tile sprites, and posts a snapshot to the parent page.
+// live Phaser game. It reads the board, optionally tints tile sprites, and posts
+// a snapshot to the parent page. The only thing it ever does to the game is
+// start a new deal, and only while you've asked it to hunt for a high score.
 (() => {
   'use strict';
   const TAG = 'mjsb';
-  const VERSION = '1.5.0';
+  const VERSION = '1.6.0';
   const TOP_ORIGIN = 'https://games.washingtonpost.com';
   const POLL_MS = 200;
 
@@ -267,6 +268,60 @@
   const SOLVE_BUDGET_MS = 45000; // search for a win
   const OPTIMIZE_MS = 30000; // then look for the highest-scoring win (can be cut short from the panel)
   const solver = { on: true, status: 'idle', job: null, path: null, nodes: 0, ms: 0, startIds: null, startPos: null, startTiles: null, t0: 0, resolves: 0 };
+  // ---------- high-score hunt ----------
+  // Deal new boards until one has a winning line worth more than `target`
+  // (projected total, including the full-clear bonus).
+  const CLEAR_BONUS = 288 * 72;
+  const HUNT_SEARCH_MS = 10000; // no win found this fast: skip the board
+  const HUNT_GIVEUP_MS = 10000; // after this long maximizing score...
+  const HUNT_GIVEUP_FRAC = 0.9; // ...skip if still under 90% of the target
+  const hunt = { on: false, target: 0, boards: 0, counted: null, t0: 0, last: null, found: null, pending: false, abandoned: null, pendingAt: 0 };
+
+  // Same steps as the menu's New Game: forget the saved board, restart the scene.
+  function dealNewBoard(board) {
+    const g = game();
+    if (!g) return;
+    hunt.pending = true; hunt.abandoned = board; hunt.pendingAt = Date.now();
+    solver.job = null; solver.status = 'idle'; solver.startIds = null;
+    try {
+      g.gameContext.savedBoard = null;
+      g.gameContext.savedProgress = null;
+      g.state.start('GameScene', true);
+    } catch (e) { console.warn('[shadow-board] new deal failed', e); }
+  }
+
+  function huntStep(board, a) {
+    if (!hunt.on) return;
+    const now = Date.now();
+    if (hunt.pending) {
+      if (board === hunt.abandoned || a.live.length !== 144) {
+        if (now - hunt.pendingAt > 15000) dealNewBoard(board); // didn't take; try again
+        return;
+      }
+      hunt.pending = false; hunt.abandoned = null;
+    }
+    if (a.live.length !== 144) { dealNewBoard(board); return; } // only fresh boards count
+    if (hunt.counted !== board) { hunt.counted = board; hunt.boards++; }
+    if (solver.status === 'win') {
+      const total = (solver.score || 0) + CLEAR_BONUS;
+      hunt.last = total;
+      if (total > hunt.target) { hunt.on = false; hunt.found = { pts: total, boards: hunt.boards, ms: now - hunt.t0 }; }
+      else dealNewBoard(board);
+    } else if (solver.status === 'lose' || solver.status === 'unknown' || solver.status === 'error') {
+      hunt.last = solver.status === 'lose' ? 0 : -1; dealNewBoard(board); // -1: no win found fast enough
+    } else if (solver.status === 'solving' && solver.phase === 'optimize' && solver.optT0) {
+      const best = (solver.optBest || 0) + CLEAR_BONUS;
+      // Beats it: stop hunting, but let the score search finish so the plan
+      // you play is the best one it can find for this board.
+      if (best > hunt.target) { hunt.on = false; hunt.last = best; hunt.found = { pts: best, boards: hunt.boards, ms: now - hunt.t0 }; }
+      else if (now - solver.optT0 > HUNT_GIVEUP_MS && best < HUNT_GIVEUP_FRAC * hunt.target) { hunt.last = best; dealNewBoard(board); }
+    }
+  }
+
+  function huntView() {
+    return { on: hunt.on, target: hunt.target, boards: hunt.boards, t0: hunt.t0, last: hunt.last, found: hunt.found, pending: hunt.pending };
+  }
+
   // Where each tile is and what it shows. A shuffle moves tiles around but keeps
   // their IDs, so the solution must be thrown away when any of this changes.
   const posKey = (t) => t.Layer + ',' + t.Col + ',' + t.Row + ',' + t.Suit + '.' + t.Value;
@@ -337,7 +392,7 @@
     if (r.status === 'solving') {
       solver.phase = r.phase || 'search';
       if (solver.phase === 'optimize') { if (!solver.optT0) solver.optT0 = Date.now(); solver.optBest = r.best || 0; }
-      if (solver.phase === 'search' && Date.now() - solver.t0 > SOLVE_BUDGET_MS) { solver.status = 'unknown'; solver.job = null; }
+      if (solver.phase === 'search' && Date.now() - solver.t0 > (hunt.on ? HUNT_SEARCH_MS : SOLVE_BUDGET_MS)) { solver.status = 'unknown'; solver.job = null; }
       else setTimeout(pump, 0);
     } else {
       solver.status = r.status; solver.path = r.path || null; solver.reason = r.reason || null; solver.job = null;
@@ -441,7 +496,8 @@
     const g = game();
     const sc = scene();
     if (!g || !sc) {
-      if (lastSig !== 'inactive') { lastSig = 'inactive'; post({ kind: 'state', active: false }); }
+      if (g && hunt.on && hunt.pending && Date.now() - hunt.pendingAt > 15000) dealNewBoard(hunt.abandoned); // stuck between deals
+      if (lastSig !== 'inactive') { lastSig = 'inactive'; post({ kind: 'state', active: false, hunt: huntView() }); }
       return;
     }
     const board = sc._board;
@@ -450,7 +506,8 @@
     a.plan = plan(board, a);
     const pr = planSuit === null ? null : a.plan.runs.find((r) => r.suit === planSuit);
     a.planNext = new Set(pr ? pr.seq[0] : []);
-    a.solver = solverView(board, a);
+    a.solver = hunt.on && hunt.pending ? { status: 'solving', phase: 'search', nodes: 0 } : solverView(board, a);
+    huntStep(board, a);
     a.solveNext = new Set(a.solver && a.solver.next && a.solver.next.length ? a.solver.next[0] : []);
     applyTints(sc, a);
 
@@ -458,7 +515,7 @@
 
     const sig = [
       a.all.map((t) => (t.IsInBoard ? 1 : 0) + (t.IsBlocked ? 2 : 0) + ':' + t.Suit + '.' + t.Value).join(','),
-      a.focus ? a.focus.ID : '-', a.focusSource, opts.tint, opts.danger, planKey, planSuit, JSON.stringify(a.solver),
+      a.focus ? a.focus.ID : '-', a.focusSource, opts.tint, opts.danger, planKey, planSuit, JSON.stringify(a.solver), JSON.stringify(huntView()),
       Object.keys(faceImg).length,
     ].join('|');
     if (sig === lastSig) return;
@@ -474,7 +531,7 @@
     const msg = {
       kind: 'state', active: true, tiles,
       focusId: a.focus ? a.focus.ID : null, focusSource: a.focusSource,
-      plan: a.plan, planSuit, solver: a.solver,
+      plan: a.plan, planSuit, solver: a.solver, hunt: huntView(),
       matchIds: [...a.matchIds], dangerPairs: a.dangerPairs,
       freePairs: a.freePairs, left: a.live.length, opts,
     };
@@ -490,6 +547,13 @@
     if (d.kind === 'plan') planSuit = (d.suit === planSuit ? null : d.suit);
     if (d.kind === 'solve') { solver.on = !!d.on; solver.job = null; solver.status = 'idle'; solver.path = null; solver.startIds = null; solver.resolves = 0; }
     if (d.kind === 'solveNow' && solver.job && solver.job.stop) solver.job.stop();
+    if (d.kind === 'hunt') {
+      if (d.on && Number(d.target) > 0) {
+        Object.assign(hunt, { on: true, target: Number(d.target), boards: 0, counted: null, t0: Date.now(), last: null, found: null, pending: false, abandoned: null });
+        if (!solver.on) { solver.on = true; solver.status = 'idle'; solver.startIds = null; }
+      } else { hunt.on = false; hunt.pending = false; }
+    }
+    if (d.kind === 'huntClear') hunt.found = null;
     if (d.kind === 'dump') { const sc = scene(); if (sc) post({ kind: 'dump', tiles: solverInput(analyse(sc._board)) }); }
     if (d.kind === 'opts') opts = Object.assign({}, opts, d.opts);
     if (d.kind === 'hello') { lastSig = ''; imagesSent = -1; }
