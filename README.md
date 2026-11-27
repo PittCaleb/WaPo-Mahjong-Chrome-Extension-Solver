@@ -11,9 +11,11 @@ The panel:
   also aims for the highest score it can find.
 
 It never makes moves for you. It reads the board and, if you turn the option on,
-recolors tiles on the game board. The one time it changes the game is when you ask
-it to [hunt for a high-scoring board](#high-score-hunt): then it deals new boards
-for you, the same way the game's New Game button does.
+recolors tiles on the game board. It changes the game only when you ask it to:
+when you [hunt for a high-scoring board](#high-score-hunt), it deals new boards the
+same way the game's New Game button does, and
+[Deal the perfect board](#the-perfect-board) replaces your game with a
+hand-built one.
 
 > Not affiliated with The Washington Post or Arkadium. This is a personal project.
 > The game's scoring rules below were worked out from the game's own code and
@@ -38,6 +40,7 @@ for you, the same way the game's New Game button does.
    - [Solver off](#solver-off)
    - [High-score hunt](#high-score-hunt)
      - [Board-score histogram](#board-score-histogram)
+   - [The perfect board](#the-perfect-board)
 4. [How it works](#how-it-works)
 5. [Troubleshooting](#troubleshooting)
 
@@ -470,6 +473,46 @@ scored. It updates as each board is recorded and builds up across hunts and visi
   score is recorded too.
 
 Click **reset** to clear the chart.
+
+### The perfect board
+
+What's the most points the rules allow? The scoring formula alone answers that,
+whatever the deal. Every suit is played as **one unbroken streak**, in this order:
+
+| Order | Suit | Pairs | Points |
+|---|---|---|---|
+| 1 | Bamboo | 18 | 124,488 |
+| 2 | Dots | 18 | 58,368 |
+| 3 | Winds | 8 | 18,048 |
+| 4 | Dragons | 6 | 10,360 |
+| 5 | Seasons | 2 | 1,792 |
+| 6 | Characters | 18 | 5,928 |
+| 7 | Flowers | 2 | 96 |
+| | Clear bonus | | 20,736 |
+| | **Total** | | **239,816** |
+
+- **Big streaks go first, while the board is full.** Every match is multiplied by
+  the tiles left. Bamboo comes before Dots because it's worth more per tile.
+- **Flowers go last.** With only 2 pairs, their streak can't go past ×2, so they
+  lose little at the end of the game.
+- **How this was checked:** all 5,040 suit orders were tried. Then random orders
+  were improved by moving one pair at a time. Every run ended at the same 219,080
+  match points, so breaking up a suit's streak never helps.
+- **For comparison:** good random deals reach 100,000–110,000. Even the worst suit
+  order, still played as unbroken streaks, gets 159,992.
+
+**Deal the perfect board** builds a deal where this is possible:
+
+1. It finds an order in which the layout can be cleared two free tiles at a time.
+2. It hands out the faces in that order: Bamboo to the first 18 pairs removed,
+   Dots to the next 18, and so on.
+3. It loads the board through the game's own saved-game code, so the tiles are
+   drawn normally. It also replaces the game's saved copy, so **Continue** brings
+   the board back.
+
+It asks before replacing the game you're in. Then play the suits in the order
+above. Any free pair of the current suit will do, and the solver's purple moves
+follow the same plan. Winning posts the score like any other win.
 
 ---
 

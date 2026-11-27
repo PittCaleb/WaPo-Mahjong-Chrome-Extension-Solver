@@ -42,6 +42,7 @@
       <div class="mjsb-hunt">
         <label>My high score <input type="text" inputmode="numeric" class="mjsb-hs" placeholder="e.g. 95,000"></label>
         <button data-act="hunt" class="mjsb-huntbtn" title="Deal new boards until one can beat this score">Hunt for a better board</button>
+        <button data-act="perfect" class="mjsb-perfectbtn" title="Replace this game with a board built for the highest score the rules allow">Deal the perfect board</button>
         <div class="mjsb-hstat"></div>
         <div class="mjsb-hist"></div>
       </div>
@@ -76,6 +77,7 @@
 
   // ---------- high-score hunt (the work happens in frame.js) ----------
   let hunt = null; // last hunt status from the frame
+  let perfectNote = ''; // shown after dealing the perfect board
   let announced = null; // found result we've already chimed for
   let audio = null;
   const hms = (ms) => { const t = Math.floor(ms / 1000); return [t / 3600, (t / 60) % 60, t % 60].map((x) => String(Math.floor(x)).padStart(2, '0')).join(':'); };
@@ -116,8 +118,9 @@
       html = `🎉 <b>Found one!</b> ~${fmtN(h.found.pts)} pts on board ${h.found.boards} after ${hms(h.found.ms)}. ` +
         `Follow the purple moves below. <a class="mjsb-now" data-act="huntClear">dismiss</a>`;
     }
+    if (!html && perfectNote) html = perfectNote;
     elHstat.innerHTML = html;
-    elHstat.className = 'mjsb-hstat' + (running ? ' run' : h && h.found ? ' found' : '');
+    elHstat.className = 'mjsb-hstat' + (running ? ' run' : h && h.found ? ' found' : html ? ' run' : '');
   }
   setInterval(() => { if (hunt && hunt.on) renderHunt(); }, 1000);
 
@@ -203,8 +206,17 @@
         ui.highScore = parseScore(elHs.value); save();
         if (!ui.highScore) { elHs.focus(); elHstat.innerHTML = 'Enter your high score first.'; return; }
         try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) {}
-        stopFlash(); announced = null;
+        stopFlash(); announced = null; perfectNote = '';
         send({ kind: 'hunt', on: true, target: ui.highScore });
+        return;
+      }
+      if (a === 'perfect') {
+        if (confirm('Replace the current game with the perfect board (239,816 pts if played in the right order)?')) {
+          if (hunt && hunt.on) send({ kind: 'hunt', on: false });
+          send({ kind: 'perfect' });
+          perfectNote = '⭐ <b>Perfect board.</b> Play every Bamboo pair, then Dots, Winds, Dragons, Seasons, Characters, Flowers, each suit in one unbroken streak, for <b>239,816</b>. Any free pair of the current suit works.';
+          renderHunt();
+        }
         return;
       }
       if (a === 'histReset') { if (confirm('Clear the board-score histogram?')) { ui.hist = null; save(); renderHist(); } return; }
@@ -236,7 +248,9 @@
     if (w) w.postMessage(Object.assign({ src: TAG }, msg), FRAME_ORIGIN);
   }
   window.addEventListener('message', (ev) => {
-    if (ev.origin !== FRAME_ORIGIN || !ev.data || ev.data.src !== TAG || ev.data.kind !== 'state') return;
+    if (ev.origin !== FRAME_ORIGIN || !ev.data || ev.data.src !== TAG) return;
+    if (ev.data.kind === 'perfect' && ev.data.result && !ev.data.result.ok) { perfectNote = "Couldn't deal the perfect board: " + ev.data.result.why; renderHunt(); return; }
+    if (ev.data.kind !== 'state') return;
     if (ev.data.images) Object.assign(images, ev.data.images);
     if (ev.data.hunt) {
       hunt = ev.data.hunt;
