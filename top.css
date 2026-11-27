@@ -152,3 +152,13 @@
 .mjsb-hstat:empty { display: none; }
 .mjsb-hstat.run { padding: 3px 6px; border-radius: 4px; background: #2e2614; color: #ffe2a3; }
 .mjsb-hstat.found { padding: 4px 6px; border-radius: 4px; background: #163d22; color: #9dffb0; font-size: 13px; }
+.mjsb-hist { flex-basis: 100%; }
+.mjsb-hist:empty { display: none; }
+.mjsb-hhead { color: #aab; margin: 2px 0 4px; }
+.mjsb-hbars { display: flex; align-items: stretch; gap: 3px; height: 90px; }
+.mjsb-hcol { flex: 0 1 46px; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.mjsb-hcol .bar { width: 100%; min-height: 1px; background: #5b8def; border-radius: 2px 2px 0 0; }
+.mjsb-hcol.none .bar { background: #777; }
+.mjsb-hcol.hi .bar { background: #ffd479; }
+.mjsb-hcol .n { font-size: 10px; color: #ccd; line-height: 12px; }
+.mjsb-hcol .l { font-size: 9px; color: #99a; line-height: 12px; white-space: nowrap; overflow: hidden; max-width: 100%; }
