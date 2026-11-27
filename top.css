@@ -162,3 +162,4 @@
 .mjsb-hcol.hi .bar { background: #ffd479; }
 .mjsb-hcol .n { font-size: 10px; color: #ccd; line-height: 12px; }
 .mjsb-hcol .l { font-size: 9px; color: #99a; line-height: 12px; white-space: nowrap; overflow: hidden; max-width: 100%; }
+#mjsb-root button.mjsb-perfectbtn { border-color: #b36bff; }

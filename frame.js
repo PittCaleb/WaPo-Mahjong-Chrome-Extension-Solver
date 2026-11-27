@@ -5,7 +5,7 @@
 (() => {
   'use strict';
   const TAG = 'mjsb';
-  const VERSION = '1.7.0';
+  const VERSION = '1.8.0';
   const TOP_ORIGIN = 'https://games.washingtonpost.com';
   const POLL_MS = 200;
 
@@ -297,6 +297,72 @@
     hunt.log.push({ seq: hunt.seq, v }); if (hunt.log.length > 8) hunt.log.shift();
   }
 
+  // ---------- perfect board ----------
+  // The highest score the rules allow: every suit played as one unbroken streak,
+  // in this order (worked out by checking every suit order; splitting a suit
+  // never helps). 219,080 from matches + 20,736 clear bonus = 239,816.
+  // Suit ids: 0 Dots, 1 Bamboo, 2 Characters, 3 Wind, 4 Dragon, 5 Flower, 6 Season.
+  const PERFECT_ORDER = [1, 0, 3, 4, 6, 2, 5];
+  const PERFECT_SCORE = 239816;
+
+  // A legal order to clear the layout two free tiles at a time, ignoring faces.
+  function clearingOrder(tiles) {
+    for (let attempt = 0; attempt < 500; attempt++) {
+      const gone = new Set();
+      const on = (t) => !gone.has(t);
+      const free = (t) => !t.NeighborsAbove.some(on) && !(t.NeighborsLeft.some(on) && t.NeighborsRight.some(on));
+      const pairs = [];
+      while (gone.size < tiles.length) {
+        const f = tiles.filter((t) => on(t) && free(t));
+        if (f.length < 2) break;
+        // Prefer high tiles and tiles covering others, so the pile opens up evenly.
+        const w = (t) => t.Layer * 10 + Math.random() * (attempt ? 8 : 1);
+        f.sort((a, b) => w(b) - w(a));
+        pairs.push([f[0], f[1]]); gone.add(f[0]); gone.add(f[1]);
+      }
+      if (gone.size === tiles.length) return pairs;
+    }
+    return null;
+  }
+
+  function loadPerfectBoard() {
+    const g = game(), sc = scene();
+    if (!g || !sc) return { ok: false, why: 'Start a game first.' };
+    const tiles = sc._board._tiles;
+    if (tiles.length !== 144) return { ok: false, why: 'Unexpected board size.' };
+    const pairs = clearingOrder(tiles);
+    if (!pairs) return { ok: false, why: 'Could not find a clearing order for this layout.' };
+    // Faces to hand out, pair by pair, in streak order.
+    const typeOf = {};
+    for (const t of tiles) typeOf[t.Suit] = t.Type;
+    const faces = [];
+    for (const s of PERFECT_ORDER) {
+      if (s === 5 || s === 6) { faces.push([s, 0, 1], [s, 2, 3]); continue; } // one copy each; any two match
+      const nv = s === 3 ? 4 : s === 4 ? 3 : 9;
+      for (let v = 0; v < nv; v++) faces.push([s, v, v], [s, v, v]);
+    }
+    const out = [];
+    pairs.forEach(([a, b], i) => {
+      const [s, va, vb] = faces[i];
+      out.push({ id: a.ID, suit: s, type: typeOf[s], value: va });
+      out.push({ id: b.ID, suit: s, type: typeOf[s], value: vb });
+    });
+    const saved = { type: sc._board.PuzzleName, tiles: out };
+    hunt.on = false;
+    solver.job = null; solver.status = 'idle'; solver.startIds = null; solver.path = null;
+    try {
+      // Also replace the game's own saved copy, so Continue reloads this board.
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        try { const v = JSON.parse(atob(localStorage.getItem(k))); if (v && Array.isArray(v.tiles) && v.tiles.length === 144) localStorage.setItem(k, btoa(JSON.stringify(saved))); } catch (e) {}
+      }
+      g.gameContext.savedBoard = saved;
+      g.gameContext.savedProgress = null;
+      g.state.start('GameScene', true);
+    } catch (e) { return { ok: false, why: String(e) }; }
+    return { ok: true };
+  }
+
   function huntStep(board, a) {
     if (!hunt.on) return;
     const now = Date.now();
@@ -561,6 +627,7 @@
       } else { hunt.on = false; hunt.pending = false; }
     }
     if (d.kind === 'huntClear') hunt.found = null;
+    if (d.kind === 'perfect') post({ kind: 'perfect', result: loadPerfectBoard() });
     if (d.kind === 'dump') { const sc = scene(); if (sc) post({ kind: 'dump', tiles: solverInput(analyse(sc._board)) }); }
     if (d.kind === 'opts') opts = Object.assign({}, opts, d.opts);
     if (d.kind === 'hello') { lastSig = ''; imagesSent = -1; }
